@@ -1,0 +1,199 @@
+---
+title: "Microsoft Graph API"
+description: PowerShell scripts leveraging the Microsoft Graph API for M365 automation including authentication, permission scopes, and common Graph operations across services.
+---
+
+Microsoft Graph is the unified API for accessing Microsoft 365 services. The `Microsoft.Graph` PowerShell SDK wraps Graph API calls as native PowerShell cmdlets, making it the recommended approach for all modern Microsoft 365 automation.
+
+## Installing the module
+
+```powershell
+# Install the full SDK (includes all service modules)
+Install-Module -Name Microsoft.Graph -Force
+
+# Install only the modules you need (faster, smaller footprint)
+Install-Module -Name Microsoft.Graph.Users -Force
+Install-Module -Name Microsoft.Graph.Groups -Force
+Install-Module -Name Microsoft.Graph.Mail -Force
+Install-Module -Name Microsoft.Graph.Sites -Force
+Install-Module -Name Microsoft.Graph.Teams -Force
+Install-Module -Name Microsoft.Graph.Identity.SignIns -Force
+
+# Check the installed version
+Get-InstalledModule -Name Microsoft.Graph | Select-Object Name, Version
+```
+
+<Tip>
+Installing individual sub-modules instead of the full `Microsoft.Graph` bundle significantly reduces installation time and import overhead. You can always add more sub-modules later.
+</Tip>
+
+## Authentication
+
+Microsoft Graph uses OAuth 2.0. The `Connect-MgGraph` cmdlet handles the authentication flow.
+
+```powershell
+# Interactive login with specific permission scopes
+Connect-MgGraph -Scopes "User.Read.All", "Group.ReadWrite.All", "Mail.Read"
+
+# Check current connection context
+Get-MgContext
+
+# Disconnect
+Disconnect-MgGraph
+```
+
+### Application (non-interactive) authentication
+
+For scheduled tasks and automation scripts that run unattended, authenticate as an app registration rather than a user.
+
+```powershell
+# Connect using a client secret (app registration)
+$ClientId     = "your-app-client-id"
+$TenantId     = "your-tenant-id"
+$ClientSecret = "your-client-secret" | ConvertTo-SecureString -AsPlainText -Force
+
+$Credential = New-Object System.Management.Automation.PSCredential($ClientId, $ClientSecret)
+
+Connect-MgGraph -TenantId $TenantId -ClientSecretCredential $Credential
+
+# Connect using a certificate (more secure than client secret)
+Connect-MgGraph -TenantId $TenantId -ClientId $ClientId -CertificateThumbprint "ABC123..."
+```
+
+<Note>
+Application authentication grants the permissions assigned to the app registration in Azure Portal > App registrations > API permissions. These are application permissions, not delegated permissions.
+</Note>
+
+## Common cmdlet patterns
+
+All Graph cmdlets follow consistent naming conventions based on the HTTP verbs used by the underlying REST API.
+
+| Prefix | HTTP method | Example |
+|---|---|---|
+| `Get-Mg*` | GET | `Get-MgUser`, `Get-MgGroup` |
+| `New-Mg*` | POST | `New-MgUser`, `New-MgGroup` |
+| `Update-Mg*` | PATCH | `Update-MgUser`, `Update-MgGroup` |
+| `Remove-Mg*` | DELETE | `Remove-MgUser`, `Remove-MgGroup` |
+| `Invoke-MgGraph*` | Any | Direct API calls with custom payloads |
+
+```powershell
+# Get operations
+Get-MgUser -All
+Get-MgGroup -All
+Get-MgDevice -All
+
+# Create operations
+New-MgUser -DisplayName "Jane Smith" -UserPrincipalName "jsmith@yourdomain.com" ...
+New-MgGroup -DisplayName "New Group" -MailEnabled $false -SecurityEnabled $true ...
+
+# Update operations
+Update-MgUser -UserId user@yourdomain.com -Department "Engineering"
+Update-MgGroup -GroupId <GroupId> -Description "Updated description"
+
+# Delete operations
+Remove-MgUser -UserId user@yourdomain.com
+Remove-MgGroup -GroupId <GroupId>
+
+# Direct API call for operations without a dedicated cmdlet
+Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/me"
+```
+
+## Finding the right permissions
+
+Every Graph operation requires specific permission scopes. Request only the permissions your script actually needs.
+
+```powershell
+# Find cmdlets and their required permissions
+Find-MgGraphCommand -Command Get-MgUser | Select-Object -ExpandProperty Permissions
+
+# Find the command for a given API endpoint
+Find-MgGraphCommand -Uri "/users" -Method GET
+```
+
+<AccordionGroup>
+  <Accordion title="User management scopes">
+    | Permission | Type | Purpose |
+    |---|---|---|
+    | `User.Read` | Delegated | Read the signed-in user's profile |
+    | `User.Read.All` | Delegated / Application | Read all user profiles |
+    | `User.ReadWrite.All` | Delegated / Application | Create, update, and delete users |
+    | `Directory.Read.All` | Delegated / Application | Read all directory objects |
+
+    ```powershell
+    Connect-MgGraph -Scopes "User.Read.All"
+    ```
+  </Accordion>
+  <Accordion title="Group management scopes">
+    | Permission | Type | Purpose |
+    |---|---|---|
+    | `Group.Read.All` | Delegated / Application | Read all groups |
+    | `Group.ReadWrite.All` | Delegated / Application | Create, update, and delete groups |
+    | `GroupMember.ReadWrite.All` | Delegated / Application | Manage group membership |
+
+    ```powershell
+    Connect-MgGraph -Scopes "Group.ReadWrite.All", "GroupMember.ReadWrite.All"
+    ```
+  </Accordion>
+  <Accordion title="Mail and calendar scopes">
+    | Permission | Type | Purpose |
+    |---|---|---|
+    | `Mail.Read` | Delegated / Application | Read mail in all mailboxes |
+    | `Mail.ReadWrite` | Delegated / Application | Read and write mail in all mailboxes |
+    | `Mail.Send` | Delegated / Application | Send mail as any user |
+    | `Calendars.Read` | Delegated / Application | Read calendars in all mailboxes |
+
+    ```powershell
+    Connect-MgGraph -Scopes "Mail.Read", "Mail.Send"
+    ```
+  </Accordion>
+  <Accordion title="SharePoint and Teams scopes">
+    | Permission | Type | Purpose |
+    |---|---|---|
+    | `Sites.Read.All` | Delegated / Application | Read all SharePoint sites |
+    | `Sites.ReadWrite.All` | Delegated / Application | Read and write all SharePoint sites |
+    | `Team.ReadBasic.All` | Delegated / Application | List all teams |
+    | `TeamMember.ReadWrite.All` | Delegated / Application | Manage team membership |
+    | `Channel.ReadBasic.All` | Delegated / Application | List channels in all teams |
+
+    ```powershell
+    Connect-MgGraph -Scopes "Sites.Read.All", "Team.ReadBasic.All"
+    ```
+  </Accordion>
+  <Accordion title="Conditional Access and identity scopes">
+    | Permission | Type | Purpose |
+    |---|---|---|
+    | `Policy.Read.All` | Delegated / Application | Read all policies including CA policies |
+    | `Policy.ReadWrite.ConditionalAccess` | Delegated / Application | Create and modify CA policies |
+    | `AuditLog.Read.All` | Delegated / Application | Read audit log data |
+    | `IdentityRiskEvent.Read.All` | Delegated / Application | Read risk detection events |
+
+    ```powershell
+    Connect-MgGraph -Scopes "Policy.Read.All", "AuditLog.Read.All"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Pagination and large result sets
+
+Graph API responses are paginated. The `-All` switch in Graph cmdlets handles pagination automatically.
+
+```powershell
+# Use -All to retrieve all pages automatically
+$allUsers = Get-MgUser -All
+
+# For direct API calls, handle pagination manually
+$uri = "https://graph.microsoft.com/v1.0/users"
+$users = @()
+
+do {
+    $response = Invoke-MgGraphRequest -Method GET -Uri $uri
+    $users += $response.value
+    $uri = $response.'@odata.nextLink'
+} while ($uri)
+
+Write-Host "Total users: $($users.Count)"
+```
+
+<Warning>
+Avoid using `-All` against very large tenants without filtering first. Retrieving tens of thousands of objects without a `-Filter` parameter can be slow and may hit throttling limits. Use `-Filter` to narrow results where possible.
+</Warning>

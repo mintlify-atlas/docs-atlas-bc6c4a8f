@@ -1,0 +1,95 @@
+{
+  "projectType": "general",
+  "projectName": "PowerShell Toolkit",
+  "projectDescription": "A battle-tested collection of PowerShell scripts for enterprise IT administration covering Active Directory, Azure, Microsoft 365, Intune, VMware, and Windows Server automation.",
+  "theme": "aspen",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "prerequisites"
+            ]
+          },
+          {
+            "group": "Active Directory",
+            "pages": [
+              "active-directory/overview",
+              "active-directory/user-management",
+              "active-directory/group-management"
+            ]
+          },
+          {
+            "group": "Microsoft 365 & Azure",
+            "pages": [
+              "microsoft-365/overview",
+              "microsoft-365/exchange",
+              "microsoft-365/sharepoint-teams",
+              "microsoft-365/azure-ad",
+              "microsoft-365/msgraph"
+            ]
+          },
+          {
+            "group": "Intune Device Management",
+            "pages": [
+              "intune/overview",
+              "intune/proactive-remediations",
+              "intune/compliance-scripts",
+              "intune/win32-apps",
+              "intune/macos"
+            ]
+          },
+          {
+            "group": "VMware & Infrastructure",
+            "pages": [
+              "vmware/overview",
+              "vmware/entra-id-federation",
+              "windows/overview",
+              "windows/netsh-tracing"
+            ]
+          },
+          {
+            "group": "PowerShell Utilities",
+            "pages": [
+              "powershell/profile-setup",
+              "powershell/module-management",
+              "powershell/best-practices"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Active Directory user, group, and domain management automation",
+    "Microsoft 365 administration for Exchange, SharePoint, and Teams",
+    "Azure AD / Entra ID identity and Conditional Access management",
+    "Microsoft Intune device management with Proactive Remediations",
+    "VMware vSphere automation via PowerCLI with Entra ID federation",
+    "Windows Server administration including network trace capture",
+    "Microsoft Graph API automation scripts",
+    "Dynamic PowerShell profile with module auto-management"
+  ],
+  "publicApiSurface": [
+    "netsh_multi_trace.ps1 - Captures three 60-minute netsh network traces with auto-compression",
+    "powercli_entra_id_connect_vcenter.ps1 - Connects to vCenter using Entra ID federated logins",
+    "Detect-WUPaths.ps1 / Remediate-WUPaths.ps1 - Windows Update registry path remediation",
+    "Detect-Zscaler.ps1 / Remediate-Zscaler.ps1 - Zscaler app detection and uninstall",
+    "Detect-Fastboot.ps1 / Remediate-Fastboot.ps1 - Windows Fast Boot disable remediation",
+    "Detect-Local_Admin_Account.ps1 / Remediate-Local_Admin_Account.ps1 - Local admin account management",
+    "Detect-Microsoft_Store_Auto_Update.ps1 / Remediate-Microsoft_Store_Auto_Update.ps1 - Store auto-update enforcement",
+    "Detect-Cisco-Umbrella.ps1 / Detect-Netskope.ps1 - Security agent compliance detection",
+    "install-zulu-jre.ps1 / uninstall-zulu-jre.ps1 - Azul Zulu OpenJRE Win32 app deployment",
+    "install-snagit-2024.ps1 / uninstall-snagit-2024.ps1 - SnagIT 2024 Win32 app deployment",
+    "Microsoft.PowerShell_profile.ps1 - Dynamic profile with Ensure-Module, custom prompt, and system info",
+    "dynamic_powershell_profile_loader.ps1 - Dynamic profile loader for module management"
+  ]
+}

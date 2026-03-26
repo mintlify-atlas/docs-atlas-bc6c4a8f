@@ -1,0 +1,191 @@
+---
+title: "SharePoint & Teams"
+description: PowerShell scripts for SharePoint Online and Microsoft Teams administration including site management, permissions, team provisioning, and channel operations.
+---
+
+This section covers automation for both SharePoint Online and Microsoft Teams. While they are separate services, they share an underlying Microsoft 365 Groups infrastructure and are often managed together.
+
+<Tabs>
+  <Tab title="SharePoint">
+
+## Prerequisites
+
+You have two module options for SharePoint Online. PnP PowerShell is the more feature-rich choice for site-level operations.
+
+```powershell
+# Option 1: PnP PowerShell (recommended for site management)
+Install-Module -Name PnP.PowerShell -Force
+
+# Option 2: SPO Management Shell (tenant-level operations)
+Install-Module -Name Microsoft.Online.SharePoint.PowerShell -Force
+```
+
+## Connecting to SharePoint Online
+
+```powershell
+# Connect using PnP PowerShell (interactive browser auth)
+Connect-PnPOnline -Url https://yourdomain.sharepoint.com -Interactive
+
+# Connect to a specific site
+Connect-PnPOnline -Url https://yourdomain.sharepoint.com/sites/YourSite -Interactive
+
+# Connect using SPO Management Shell (tenant admin)
+Connect-SPOService -Url https://yourdomain-admin.sharepoint.com
+```
+
+<Note>
+For the SPO Management Shell, use the `-admin` URL, not the root site URL. For PnP PowerShell, connect to the specific site you want to manage.
+</Note>
+
+## Site management
+
+```powershell
+# List all site collections (SPO Management Shell)
+Get-SPOSite -Limit All | Select-Object Url, Title, StorageUsageCurrent
+
+# Get a specific site's details
+Get-SPOSite -Identity https://yourdomain.sharepoint.com/sites/YourSite
+
+# Create a new site collection
+New-SPOSite -Url https://yourdomain.sharepoint.com/sites/NewSite `
+    -Owner admin@yourdomain.com `
+    -StorageQuota 1024 `
+    -Title "New Site" `
+    -Template "STS#3"
+
+# Remove a site collection (moves to recycle bin)
+Remove-SPOSite -Identity https://yourdomain.sharepoint.com/sites/OldSite
+```
+
+## Permissions management
+
+```powershell
+# Get all users with access to a site (PnP)
+Get-PnPSiteUser | Select-Object Title, Email, LoginName
+
+# Add a user to a SharePoint group
+Add-SPOUser -Site https://yourdomain.sharepoint.com/sites/YourSite `
+    -LoginName user@yourdomain.com `
+    -Group "YourSite Members"
+
+# Remove a user from a site
+Remove-SPOUser -Site https://yourdomain.sharepoint.com/sites/YourSite `
+    -LoginName user@yourdomain.com
+
+# Get external users for a site
+Get-SPOExternalUser -SiteUrl https://yourdomain.sharepoint.com/sites/YourSite
+```
+
+## Lists and libraries (PnP PowerShell)
+
+```powershell
+# Get all lists in a site
+Get-PnPList | Select-Object Title, ItemCount, LastItemModifiedDate
+
+# Get items from a list
+Get-PnPListItem -List "Documents" -PageSize 100
+
+# Export list items to CSV
+Get-PnPListItem -List "ProjectTracking" | 
+    ForEach-Object { $_.FieldValues } | 
+    Export-Csv -Path "C:\Reports\ListItems.csv" -NoTypeInformation
+```
+
+  </Tab>
+  <Tab title="Teams">
+
+## Prerequisites
+
+```powershell
+# Install the Microsoft Teams module
+Install-Module -Name MicrosoftTeams -Force
+
+# Import the module
+Import-Module MicrosoftTeams
+```
+
+## Connecting to Microsoft Teams
+
+```powershell
+# Connect interactively
+Connect-MicrosoftTeams
+
+# Connect as a specific user
+Connect-MicrosoftTeams -AccountId admin@yourdomain.com
+
+# Disconnect when finished
+Disconnect-MicrosoftTeams
+```
+
+## Team management
+
+```powershell
+# List all teams in the tenant
+Get-Team | Select-Object DisplayName, GroupId, Visibility, Archived
+
+# Get a specific team by display name
+Get-Team -DisplayName "IT Operations"
+
+# Create a new team
+New-Team -DisplayName "Project Alpha" `
+    -Description "Project Alpha collaboration space" `
+    -Visibility Private
+
+# Archive a team (preserves content, sets to read-only)
+Set-TeamArchivedState -GroupId <GroupId> -Archived $true
+
+# Remove a team
+Remove-Team -GroupId <GroupId>
+```
+
+## Channel operations
+
+```powershell
+# List all channels in a team
+Get-TeamChannel -GroupId <GroupId> | 
+    Select-Object DisplayName, MembershipType, Id
+
+# Add a new channel
+New-TeamChannel -GroupId <GroupId> `
+    -DisplayName "Announcements" `
+    -Description "Company-wide announcements" `
+    -MembershipType Standard
+
+# Create a private channel
+New-TeamChannel -GroupId <GroupId> `
+    -DisplayName "Leadership" `
+    -MembershipType Private
+
+# Remove a channel
+Remove-TeamChannel -GroupId <GroupId> -DisplayName "OldChannel"
+```
+
+## Membership management
+
+```powershell
+# List all members of a team
+Get-TeamUser -GroupId <GroupId> | 
+    Select-Object User, Role
+
+# Add a member to a team
+Add-TeamUser -GroupId <GroupId> -User user@yourdomain.com
+
+# Add a member as an owner
+Add-TeamUser -GroupId <GroupId> -User admin@yourdomain.com -Role Owner
+
+# Remove a member from a team
+Remove-TeamUser -GroupId <GroupId> -User user@yourdomain.com
+
+# Bulk add users from a CSV
+Import-Csv -Path "C:\users.csv" | ForEach-Object {
+    Add-TeamUser -GroupId <GroupId> -User $_.UserPrincipalName
+    Write-Host "Added $($_.UserPrincipalName)"
+}
+```
+
+<Tip>
+Use `Get-Team | Select-Object DisplayName, GroupId` to retrieve the `GroupId` needed for channel and membership cmdlets.
+</Tip>
+
+  </Tab>
+</Tabs>

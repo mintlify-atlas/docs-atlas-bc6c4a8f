@@ -1,0 +1,187 @@
+---
+title: "Best Practices"
+description: Safe scripting guidelines for running PowerShell Toolkit scripts in production environments
+---
+
+The scripts in this toolkit are battle-tested tools from real production environments. They are shared as-is to solve real-world IT challenges. Following these practices before and during execution will protect your environment and your data.
+
+<Warning>
+  This project is licensed under the GPL-3.0 License. All scripts are provided **"AS IS"**, without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. The authors are not liable for any claim, damages, or other liability arising from use of these scripts. **Always test in a development environment before running in production.**
+</Warning>
+
+---
+
+## Practices
+
+<AccordionGroup>
+  <Accordion title="Test first">
+    Always run scripts in a non-production or development environment before executing against live systems. Even small configuration differences between environments can produce unexpected outcomes.
+
+    Create a dedicated test OU in Active Directory, a non-production vSphere cluster, or a Microsoft 365 developer tenant to validate behavior safely.
+  </Accordion>
+
+  <Accordion title="Review before running">
+    Read every line of a script and understand what it does before executing it. Pay attention to:
+
+    - What objects are targeted (all users, a specific OU, all VMs)
+    - Whether the script makes changes or only reads data
+    - Any hardcoded paths, credentials, or environment-specific values
+
+    Never run a script you have not reviewed, regardless of its source.
+  </Accordion>
+
+  <Accordion title="Use appropriate permissions">
+    Run scripts with the minimum privilege required to complete the task. Avoid running everything as a Domain Admin or Global Administrator.
+
+    Check what roles and permissions each script needs and use a dedicated service account or just-in-time (JIT) elevation where your organization supports it.
+
+    ```powershell
+    # Check the current user's identity before running
+    [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    ```
+  </Accordion>
+
+  <Accordion title="Backup data before making changes">
+    Before running any script that modifies or deletes data, create a backup or export of the current state.
+
+    ```powershell
+    # Export current AD users before bulk changes
+    Get-ADUser -Filter * -Properties * | Export-Csv -Path "C:\Backups\ADUsers_$(Get-Date -Format yyyyMMdd).csv" -NoTypeInformation
+    ```
+
+    For Exchange Online, export mailbox configurations. For vSphere, take a snapshot. For SharePoint, export site contents. The cost of a backup is always lower than the cost of recovery.
+  </Accordion>
+
+  <Accordion title="Customize scripts for your environment">
+    Scripts in this toolkit are starting points, not plug-and-play solutions. Customize them for your organization before running:
+
+    - Update Distinguished Names (DNs) and OUs to match your AD structure
+    - Replace example server names, tenant IDs, and domain names
+    - Adjust filter parameters to match your naming conventions
+    - Remove or add fields in export reports to match your reporting needs
+  </Accordion>
+
+  <Accordion title="Follow change management procedures">
+    Treat PowerShell scripts as changes to your environment, because they are. Before running a script in production:
+
+    - Open a change request in your ITSM system
+    - Document what the script does, why it is being run, and what the rollback plan is
+    - Schedule execution during an approved maintenance window
+    - Notify affected teams or end users as required by your change process
+  </Accordion>
+
+  <Accordion title="Use -WhatIf to preview changes">
+    Many PowerShell cmdlets support the `-WhatIf` parameter, which shows what the command *would* do without actually doing it. Always check for `-WhatIf` support before running a destructive operation.
+
+    ```powershell
+    # Check if a cmdlet supports -WhatIf
+    (Get-Command Remove-ADUser).Parameters.ContainsKey('WhatIf')
+    ```
+
+    Run the script with `-WhatIf` first to verify the scope:
+
+    ```powershell
+    # Preview a bulk disable without making changes
+    Get-ADUser -Filter { Enabled -eq $true -and Department -eq "Contractors" } |
+        Disable-ADAccount -WhatIf
+    ```
+
+    Only remove `-WhatIf` once the output confirms the correct set of objects will be affected.
+  </Accordion>
+
+  <Accordion title="Enable logging with Start-Transcript">
+    `Start-Transcript` captures everything printed to the console — commands, output, and errors — to a log file. Start a transcript at the beginning of any significant script run.
+
+    ```powershell
+    $logPath = "C:\Logs\ScriptRun_$(Get-Date -Format yyyyMMdd_HHmmss).txt"
+    Start-Transcript -Path $logPath -Append
+
+    # ... your script logic here ...
+
+    Stop-Transcript
+    ```
+
+    Store transcripts in a location accessible to your team so that any action can be audited after the fact.
+
+    <Tip>
+      Add `Start-Transcript` and `Stop-Transcript` to every script that runs unattended or makes bulk changes. The log file is invaluable when something goes wrong and you need to reconstruct exactly what happened.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Use try/catch for error handling">
+    Wrap operations that can fail in `try/catch` blocks so that a single error does not silently abort the rest of the script.
+
+    ```powershell
+    foreach ($user in $users) {
+        try {
+            Disable-ADAccount -Identity $user.SamAccountName -ErrorAction Stop
+            Write-Host "Disabled: $($user.SamAccountName)" -ForegroundColor Green
+        } catch {
+            Write-Warning "Failed to disable $($user.SamAccountName): $_"
+        }
+    }
+    ```
+
+    Use `-ErrorAction Stop` on cmdlets inside `try` blocks so that non-terminating errors are promoted to exceptions and caught correctly.
+  </Accordion>
+
+  <Accordion title="Set an appropriate execution policy">
+    PowerShell's execution policy controls which scripts are allowed to run. The default policy on most Windows systems is `Restricted`, which blocks all scripts.
+
+    ```powershell
+    # Check the current policy
+    Get-ExecutionPolicy -List
+
+    # Allow local scripts and signed remote scripts (recommended)
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+    ```
+
+    | Policy | Description |
+    |---|---|
+    | `Restricted` | No scripts allowed (default) |
+    | `AllSigned` | All scripts must be signed by a trusted publisher |
+    | `RemoteSigned` | Local scripts run freely; downloaded scripts must be signed |
+    | `Unrestricted` | All scripts run; downloaded scripts prompt for confirmation |
+    | `Bypass` | Nothing is blocked — use only in controlled automation contexts |
+
+    Use `RemoteSigned` or `AllSigned` in production environments. Avoid `Bypass` outside of tightly controlled automation pipelines.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Safe scripting template
+
+The following template combines logging, error handling, and `-WhatIf` support in a single reusable pattern:
+
+```powershell
+[CmdletBinding(SupportsShouldProcess)]
+param (
+    [string]$LogPath = "C:\Logs\ScriptRun_$(Get-Date -Format yyyyMMdd_HHmmss).txt"
+)
+
+Start-Transcript -Path $LogPath -Append
+
+try {
+    # Replace with your script logic
+    $targets = Get-ADUser -Filter { Department -eq "Contractors" } -ErrorAction Stop
+
+    foreach ($target in $targets) {
+        if ($PSCmdlet.ShouldProcess($target.SamAccountName, "Disable-ADAccount")) {
+            Disable-ADAccount -Identity $target.SamAccountName -ErrorAction Stop
+            Write-Host "Disabled: $($target.SamAccountName)" -ForegroundColor Green
+        }
+    }
+} catch {
+    Write-Error "Script failed: $_"
+} finally {
+    Stop-Transcript
+}
+```
+
+Run with `-WhatIf` to preview, then without to execute:
+
+```powershell
+.\Disable-Contractors.ps1 -WhatIf
+.\Disable-Contractors.ps1
+```

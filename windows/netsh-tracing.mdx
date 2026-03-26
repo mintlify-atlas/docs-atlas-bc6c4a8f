@@ -1,0 +1,204 @@
+---
+title: "Network Trace Capture"
+description: Automated multi-session netsh network trace capture with compression
+---
+
+The `netsh_multi_trace.ps1` script captures three consecutive 60-minute network traces using `netsh`, saves each with a timestamped filename, and compresses each completed trace into a `.zip` file. The original `.etl` files are removed after compression to conserve disk space.
+
+<Note>
+  After each trace completes, the `.etl` file is automatically deleted once it has been compressed into a `.zip` archive.
+</Note>
+
+## What it does
+
+- Captures three consecutive 60-minute `netsh trace` sessions
+- Saves each trace with a timestamped `.etl` filename (e.g., `nettrace_20250507_160002.etl`)
+- Compresses each completed trace into a `.zip` file using `Compress-Archive`
+- Includes error handling for start, stop, and compression failures
+- Automatically creates the output directory (`C:\Temp`) if it does not exist
+
+**Expected output:**
+
+```powershell
+C:\Temp\nettrace_20250507_160002.zip
+```
+
+## Full script
+
+```powershell
+#	
+# .NOTES
+# 	Name: netsh_multi_trace.ps1
+# 	Author: Joel Cottrell
+# 	Copyright: GPLv3
+# 	Tags: windows netsh
+#
+# .SYNOPSIS
+# Captures three 60-minute netsh traces
+#
+# .DESCRIPTION
+# This script does the following:
+#
+# 	Captures three 60-minute netsh traces
+# 	Saves each with a timestamped .etl filename
+# 	Compresses each completed trace into a .zip file using Compress-Archive
+# 	Includes error handling and auto-creates the output directory
+#
+# .EXAMPLE
+# Example output: C:\Temp\nettrace_20250507_160002.zip
+#
+
+# Define output directory
+$traceDir = "C:\Temp"
+if (-not (Test-Path $traceDir)) {
+    try {
+        New-Item -Path $traceDir -ItemType Directory -Force
+        Write-Output "Created trace directory: $traceDir"
+    } catch {
+        Write-Error "Failed to create directory $traceDir. Exiting."
+        exit 1
+    }
+}
+
+# Function to start and stop a 60-minute trace, then zip it
+function Start-TimedTrace {
+    param (
+        [int]$durationSeconds = 3600,
+        [string]$outputDir
+    )
+
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $traceFileName = "nettrace_$timestamp.etl"
+    $traceFilePath = Join-Path $outputDir $traceFileName
+    $zipFilePath = Join-Path $outputDir ("nettrace_$timestamp.zip")
+
+    # Start the trace
+    try {
+        Write-Output "`n[$(Get-Date -Format 'HH:mm:ss')] Starting trace: $traceFilePath"
+        netsh trace start capture=yes tracefile="$traceFilePath" persistent=no overwrite=yes report=yes
+    } catch {
+        Write-Error "Failed to start netsh trace. Skipping this interval."
+        return
+    }
+
+    # Wait for specified duration
+    Write-Output "Capturing for $($durationSeconds / 60) minutes..."
+    Start-Sleep -Seconds $durationSeconds
+
+    # Stop the trace
+    try {
+        Write-Output "[$(Get-Date -Format 'HH:mm:ss')] Stopping trace..."
+        netsh trace stop
+        Write-Output "Trace saved: $traceFilePath"
+    } catch {
+        Write-Error "Failed to stop netsh trace properly."
+        return
+    }
+
+    # Compress the trace file
+    try {
+        Write-Output "Compressing to: $zipFilePath"
+        Compress-Archive -Path $traceFilePath -DestinationPath $zipFilePath -Force
+        Remove-Item $traceFilePath -Force
+        Write-Output "Compression complete. Original .etl file removed."
+    } catch {
+        Write-Error "Failed to compress trace file: $traceFilePath"
+    }
+}
+
+# Run three 60-minute traces back to back
+for ($i = 1; $i -le 3; $i++) {
+    Write-Output "`n=== Trace $i of 3 ==="
+    Start-TimedTrace -durationSeconds 3600 -outputDir $traceDir
+}
+```
+
+## Script breakdown
+
+### Output directory setup
+
+The script defines `$traceDir = "C:\Temp"` as the output location. If the directory does not exist, it creates it with `New-Item`. If directory creation fails, the script exits immediately.
+
+### `Start-TimedTrace` function
+
+This function handles a single trace session end-to-end:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `$durationSeconds` | `int` | `3600` | Duration of each trace in seconds (default: 60 minutes) |
+| `$outputDir` | `string` | — | Directory where `.etl` and `.zip` files are saved |
+
+The function:
+1. Generates a timestamp for the filename
+2. Starts a `netsh trace` with packet capture enabled
+3. Waits for `$durationSeconds`
+4. Stops the trace
+5. Compresses the `.etl` to a `.zip` and removes the original
+
+### Main loop
+
+The `for` loop runs `Start-TimedTrace` three times back to back, producing three separate `.zip` files.
+
+## How to run
+
+<Steps>
+  <Step title="Open PowerShell as Administrator">
+    Right-click the PowerShell icon and select **Run as Administrator**. The script requires elevated privileges to start and stop `netsh trace`.
+  </Step>
+
+  <Step title="Navigate to the script location">
+    ```powershell
+    cd .\Windows\Netsh\
+    ```
+  </Step>
+
+  <Step title="Run the script">
+    ```powershell
+    .\netsh_multi_trace.ps1
+    ```
+
+    The script will immediately begin the first trace and display progress output:
+
+    ```powershell
+    === Trace 1 of 3 ===
+    [16:00:02] Starting trace: C:\Temp\nettrace_20250507_160002.etl
+    Capturing for 60 minutes...
+    ```
+  </Step>
+
+  <Step title="Wait for completion">
+    Each of the three traces runs for 60 minutes. Total runtime is approximately 3 hours. Leave the PowerShell window open and do not close the session.
+  </Step>
+
+  <Step title="Collect the .zip files">
+    When the script finishes, collect the three `.zip` files from `C:\Temp`:
+
+    ```powershell
+    Get-ChildItem C:\Temp\nettrace_*.zip
+    ```
+  </Step>
+</Steps>
+
+## Customization
+
+**Change the output directory** — update `$traceDir` at the top of the script:
+
+```powershell
+$traceDir = "D:\NetworkTraces"
+```
+
+**Change the number of traces** — update the loop upper bound from `3` to your desired count:
+
+```powershell
+for ($i = 1; $i -le 5; $i++) {
+```
+
+**Change the trace duration** — update the `-durationSeconds` argument in the loop:
+
+```powershell
+Start-TimedTrace -durationSeconds 1800 -outputDir $traceDir  # 30 minutes
+```
+
+<Tip>
+  To capture more or fewer traces, modify the upper bound of the `for` loop (`$i -le 3`). Each iteration produces one `.zip` file, so setting it to `6` captures six consecutive traces.
+</Tip>

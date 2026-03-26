@@ -1,0 +1,252 @@
+---
+title: "Compliance Scripts"
+description: "Custom compliance detection scripts for third-party security agents"
+---
+
+Microsoft Intune [Custom Compliance policies](https://learn.microsoft.com/en-us/mem/intune/protect/compliance-use-custom-settings) allow organizations to enforce compliance requirements beyond what built-in Intune compliance settings cover. This is useful for verifying that third-party security agents — such as Cisco Umbrella, Netskope, and Zscaler — are installed and running on managed devices.
+
+## How custom compliance scripts work
+
+A custom compliance policy requires two components:
+
+| Component | Description |
+|-----------|-------------|
+| **Detection script** (`.ps1`) | PowerShell script that runs on the device and returns a JSON object with discovered settings |
+| **Compliance JSON** (`.json`) | JSON file uploaded to Intune that defines the rules and expected values to evaluate against the script output |
+
+The detection script outputs a JSON object. Intune compares the output against the rules in your compliance JSON file to determine whether the device is compliant.
+
+<Note>
+  Unlike Proactive Remediations, compliance detection scripts do **not** use exit codes to signal compliant/non-compliant state. Instead, they output a JSON object that Intune evaluates against your compliance rules JSON. Exit code `0` indicates the script ran successfully; a non-zero exit means the script itself failed to run.
+</Note>
+
+## Adding detection scripts to Intune
+
+<Steps>
+  <Step title="Upload the detection script">
+    Sign into the [Intune admin center](https://endpoint.microsoft.com/) and navigate to **Endpoint security** > **Device compliance** > **Scripts** > **Add** > **Windows 10 and later**.
+
+    On the **Basics** tab, provide a name. On **Settings**, paste or upload your detection script.
+  </Step>
+  <Step title="Configure script settings">
+    For Windows scripts, configure the following options:
+    - **Run this script using the logged-on credentials** — set to `Yes` if the script needs user context (leave as `No` for system-level checks)
+    - **Enforce script signature check** — enable if your scripts are signed
+    - **Run script in 64-bit PowerShell Host** — set to `Yes` to avoid 32-bit registry redirection issues
+  </Step>
+  <Step title="Create a custom compliance policy">
+    Go to **Devices** > **Compliance** > **Create policy** > **Windows 10 and later**.
+
+    On the **Compliance settings** tab, expand **Custom Compliance** and:
+    - Set **Custom compliance** to `Require`
+    - Select the detection script you uploaded
+    - Upload the compliance JSON file
+  </Step>
+  <Step title="Assign and monitor">
+    Assign the policy to your device groups. To force an immediate sync on a test device, run:
+
+    ```powershell
+    Start-Process -FilePath "C:\Program Files (x86)\Microsoft Intune Management Extension\Microsoft.Management.Services.IntuneWindowsAgent.exe" `
+                  -ArgumentList intunemanagementextension://synccompliance
+    ```
+  </Step>
+</Steps>
+
+## Available compliance scripts
+
+<AccordionGroup>
+
+  <Accordion title="Cisco Umbrella">
+    Checks that the Cisco Umbrella (Cisco Secure Client) agent service is running and configured to start automatically.
+
+    **Service name:** `csc_umbrellaagent`
+
+    **What it checks:**
+    - `ServiceState` — service status (expected value: `4` = Running)
+    - `ServiceStartupMode` — service start type (expected value: `3` = Manual/Automatic depending on your JSON rule)
+
+    **Detection script output example:**
+    ```json
+    {"ServiceState":4,"ServiceStartupMode":3}
+    ```
+
+    ```powershell Detect-Cisco-Umbrella.ps1
+    $ServiceState       = Get-Service -Name "csc_umbrellaagent" | Select-Object Status
+    $ServiceStartupMode = Get-Service -Name "csc_umbrellaagent" | Select-Object StartType
+
+    $output = @{
+        ServiceState       = $ServiceState.Status
+        ServiceStartupMode = $ServiceStartupMode.StartType
+    }
+
+    return $output | ConvertTo-Json -Compress
+    ```
+
+    **Compliance JSON rules (save as `.json` and upload to Intune):**
+
+    ```json
+    {
+      "Rules": [
+        {
+          "SettingName": "ServiceState",
+          "Operator": "IsEquals",
+          "DataType": "Int64",
+          "Operand": 4,
+          "MoreInfoUrl": "https://docs.umbrella.com/deployment-umbrella/docs/appx-c-troubleshooting",
+          "RemediationStrings": [
+            {
+              "Language": "en_US",
+              "Title": "The Cisco Secure Client service must be running. Value discovered was {ActualValue}.",
+              "Description": "Your device must have the Cisco Umbrella client running and enabled. Try restarting your device. If this message persists, contact IT support."
+            }
+          ]
+        },
+        {
+          "SettingName": "ServiceStartupMode",
+          "Operator": "IsEquals",
+          "DataType": "Int64",
+          "Operand": 3,
+          "MoreInfoUrl": "https://docs.umbrella.com/deployment-umbrella/docs/appx-c-troubleshooting",
+          "RemediationStrings": [
+            {
+              "Language": "en_US",
+              "Title": "The Cisco Secure Client service startup must be set to Manual. Value discovered was {ActualValue}.",
+              "Description": "Your device must have the Cisco Umbrella client running and enabled. Try restarting your device. If this message persists, contact IT support."
+            }
+          ]
+        }
+      ]
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Netskope">
+    Checks that the Netskope client agent service (`stAgentSvc`) is running and configured to start automatically.
+
+    **Service name:** `stAgentSvc`
+
+    **What it checks:**
+    - `ServiceState` — service status (expected value: `4` = Running)
+    - `ServiceStartupMode` — service start type (expected value: `2` = Automatic)
+
+    **Detection script output example:**
+    ```json
+    {"ServiceState":4,"ServiceStartupMode":2}
+    ```
+
+    ```powershell Detect-Netskope.ps1
+    $ServiceState       = Get-Service -Name "stAgentSvc" | Select-Object Status
+    $ServiceStartupMode = Get-Service -Name "stAgentSvc" | Select-Object StartType
+
+    $output = @{
+        ServiceState       = $ServiceState.Status
+        ServiceStartupMode = $ServiceStartupMode.StartType
+    }
+
+    return $output | ConvertTo-Json -Compress
+    ```
+
+    **Compliance JSON rules:**
+
+    ```json
+    {
+      "Rules": [
+        {
+          "SettingName": "ServiceState",
+          "Operator": "IsEquals",
+          "DataType": "Int64",
+          "Operand": 4,
+          "MoreInfoUrl": "https://docs.netskope.com/en/netskope-client-troubleshooting-guide/",
+          "RemediationStrings": [
+            {
+              "Language": "en_US",
+              "Title": "The Netskope client service must be running. Value discovered was {ActualValue}.",
+              "Description": "Your device must have the Netskope client service running and enabled. Try restarting your device. If this message persists, contact IT support."
+            }
+          ]
+        },
+        {
+          "SettingName": "ServiceStartupMode",
+          "Operator": "IsEquals",
+          "DataType": "Int64",
+          "Operand": 2,
+          "MoreInfoUrl": "https://docs.netskope.com/en/netskope-client-troubleshooting-guide/",
+          "RemediationStrings": [
+            {
+              "Language": "en_US",
+              "Title": "The Netskope client service startup must be set to Automatic. Value discovered was {ActualValue}.",
+              "Description": "Your device must have the Netskope client service startup set to Automatic. Try restarting your device. If this message persists, contact IT support."
+            }
+          ]
+        }
+      ]
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Zscaler">
+    Verifies that the Zscaler Client Connector is actively routing traffic through the Zscaler proxy. Rather than checking a service state, this script connects to `http://ip.zscaler.com/` and reads the response to determine whether the device is proxied through Zscaler.
+
+    **What it checks:**
+    - `ZScalerStatus` — string value read from the Zscaler IP check page. A device passing traffic through Zscaler returns a confirmation string; a device not using Zscaler returns a different message.
+
+    **Detection script output example:**
+    ```json
+    {"ZScalerStatus":"You are connected to the Zscaler proxy service."}
+    ```
+
+    ```powershell Detect-Zscaler.ps1
+    # Connect to the Zscaler Cloud Security Website
+    $url = Invoke-WebRequest http://ip.zscaler.com/
+
+    # Check whether the client is routing through the Zscaler proxy
+    $checkzscaler = ($url.ParsedHtml.getElementsByTagName('div') `
+                    | Where-Object { $_.className -eq 'headline' }).innertext
+
+    $ZScalerStatus = @{ "ZScalerStatus" = $checkzscaler }
+    return $ZScalerStatus | ConvertTo-Json -Compress
+    ```
+
+    **Compliance JSON rules:**
+
+    ```json
+    {
+      "Rules": [
+        {
+          "SettingName": "ZScalerStatus",
+          "Operator": "NotEquals",
+          "DataType": "String",
+          "Operand": "The request received from you didn't come from a Zscaler IP therefore you are not going through the Zscaler proxy service.",
+          "MoreInfoUrl": "https://help.zscaler.com/client-connector/using-zscaler-client-connector",
+          "RemediationStrings": [
+            {
+              "Language": "en_US",
+              "Title": "The ZScaler Client Connector service is not running.",
+              "Description": "Your device must have the ZScaler Client Connector running and enabled. Try restarting your device. If this message persists, contact IT support."
+            }
+          ]
+        }
+      ]
+    }
+    ```
+
+    <Note>
+      This script uses `Invoke-WebRequest` with Internet Explorer's `ParsedHtml` DOM parser (only available in Windows PowerShell 5.x). It requires the device to have network access to `ip.zscaler.com` to evaluate compliance. Devices that are offline or behind a non-Zscaler proxy may report as non-compliant.
+    </Note>
+  </Accordion>
+
+</AccordionGroup>
+
+## Service status value reference
+
+PowerShell reports service status and start type as integer enum values. Use this reference when writing your compliance JSON rules:
+
+| Value | Status meaning | StartType meaning |
+|-------|---------------|------------------|
+| `1`   | Stopped       | Boot             |
+| `2`   | StartPending  | System           |
+| `3`   | StopPending   | Automatic        |
+| `4`   | Running       | Manual           |
+| `5`   | ContinuePending | Disabled       |
+| `6`   | PausePending  | —                |
+| `7`   | Paused        | —                |

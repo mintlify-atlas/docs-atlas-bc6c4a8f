@@ -1,0 +1,77 @@
+---
+title: "Microsoft 365 & Azure"
+description: PowerShell automation scripts for Microsoft 365 and Azure services including Exchange, SharePoint, Teams, Azure AD, and Microsoft Graph.
+---
+
+This section covers PowerShell automation for the full Microsoft 365 and Azure ecosystem. Whether you need to manage mailboxes, provision SharePoint sites, configure Teams, administer Entra ID identities, or call the Microsoft Graph API, the scripts here handle the heavy lifting.
+
+## Required modules
+
+Install the appropriate module before running scripts in each category.
+
+| Module | Service | Install command |
+|---|---|---|
+| `ExchangeOnlineManagement` | Exchange Online | `Install-Module ExchangeOnlineManagement` |
+| `Microsoft.Online.SharePoint.PowerShell` | SharePoint Online | `Install-Module Microsoft.Online.SharePoint.PowerShell` |
+| `MicrosoftTeams` | Teams | `Install-Module MicrosoftTeams` |
+| `Microsoft.Graph` | Azure AD / Entra ID | `Install-Module Microsoft.Graph` |
+| `AzureAD` | Azure AD (legacy) | `Install-Module AzureAD` |
+| `Microsoft.Graph` | MS Graph API | `Install-Module Microsoft.Graph` |
+
+<Note>
+PowerShell 7+ is recommended for all Microsoft 365 modules. PowerShell 5.1 is supported but some modules may have limited functionality.
+</Note>
+
+## Connecting to each service
+
+Each service requires its own connection command. Run these before executing any scripts.
+
+```powershell
+# Exchange Online
+Connect-ExchangeOnline -UserPrincipalName admin@yourdomain.com
+
+# SharePoint Online
+Connect-SPOService -Url https://yourdomain-admin.sharepoint.com
+
+# PnP PowerShell (SharePoint)
+Connect-PnPOnline -Url https://yourdomain.sharepoint.com -Interactive
+
+# Microsoft Teams
+Connect-MicrosoftTeams
+
+# Azure AD / Entra ID (Microsoft.Graph)
+Connect-MgGraph -Scopes "User.Read.All", "Group.ReadWrite.All"
+
+# Azure AD (legacy module)
+Connect-AzureAD
+```
+
+## Script categories
+
+<CardGroup cols={2}>
+  <Card title="Exchange & Exchange Online" icon="envelope" href="/microsoft-365/exchange">
+    Mailbox management, distribution groups, mail flow rules, and mailbox size reporting.
+  </Card>
+  <Card title="SharePoint & Teams" icon="users" href="/microsoft-365/sharepoint-teams">
+    Site management, permissions, team provisioning, channel operations, and membership.
+  </Card>
+  <Card title="Azure AD & Entra ID" icon="shield" href="/microsoft-365/azure-ad">
+    User management, group administration, and Conditional Access policy automation.
+  </Card>
+  <Card title="Microsoft Graph API" icon="diagram-project" href="/microsoft-365/msgraph">
+    Cross-service automation using the Microsoft Graph PowerShell SDK.
+  </Card>
+</CardGroup>
+
+## Prerequisites
+
+All scripts in this section require:
+
+- A Microsoft 365 tenant with appropriate licensing
+- An account with sufficient administrative permissions for the target service
+- PowerShell 5.1 or later (PowerShell 7+ recommended)
+- The relevant PowerShell module installed and imported
+
+<Tip>
+Always test scripts against a non-production environment or a small pilot group before running against your full tenant.
+</Tip>

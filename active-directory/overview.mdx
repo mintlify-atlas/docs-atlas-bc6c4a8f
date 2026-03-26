@@ -1,0 +1,86 @@
+---
+title: "Active Directory Scripts"
+description: Overview of Active Directory automation scripts in the PowerShell Toolkit, covering user management, group management, and domain administration.
+---
+
+The Active Directory section of the PowerShell Toolkit provides battle-tested scripts for managing AD environments at scale. Built from 20 years of hands-on experience in healthcare IT infrastructure, these scripts cover the most common and time-consuming AD administration tasks.
+
+<Note>
+  Always test scripts against a dedicated test organizational unit (OU) before running them in production. A mistake in AD can have broad impact across your environment.
+</Note>
+
+## What's covered
+
+The AD scripts are organized into the following categories:
+
+- **User management** — Query, create, modify, enable, disable, and report on user accounts
+- **Group management** — Manage group membership, analyze nested groups, and audit group usage
+- **Domain administration** — Domain-wide reporting, OU structure queries, and policy-related automation
+
+## Prerequisites
+
+### Required module
+
+All Active Directory scripts require the `ActiveDirectory` PowerShell module. Install it with:
+
+```powershell
+Install-Module -Name ActiveDirectory
+```
+
+On Windows Server, the module is available via RSAT:
+
+```powershell
+Add-WindowsFeature RSAT-AD-PowerShell
+```
+
+On Windows 10/11 client machines:
+
+```powershell
+Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0
+```
+
+### Required permissions
+
+| Operation | Minimum permission |
+|-----------|-------------------|
+| Querying users, groups, OUs | Domain Users (read access) |
+| Modifying accounts or group membership | Account Operators or delegated rights |
+| Domain-wide changes, creating OUs | Domain Admins |
+
+## Script categories
+
+<CardGroup cols={2}>
+  <Card title="User Management" icon="user" href="/active-directory/user-management">
+    Query user accounts, generate reports, create and modify accounts, and manage account status (enable/disable).
+  </Card>
+  <Card title="Group Management" icon="users" href="/active-directory/group-management">
+    Query group membership, add and remove members, analyze nested groups, and audit group usage.
+  </Card>
+</CardGroup>
+
+## Getting started
+
+<Steps>
+  <Step title="Clone the repository">
+    ```powershell
+    git clone https://github.com/bigjoestretch/powershell-toolkit.git
+    ```
+  </Step>
+  <Step title="Install the ActiveDirectory module">
+    Verify the module is available in your session:
+
+    ```powershell
+    Get-Module -ListAvailable -Name ActiveDirectory
+    ```
+  </Step>
+  <Step title="Review the script before running">
+    Open the script in a text editor and read the parameters and comment block at the top before executing.
+  </Step>
+  <Step title="Run against a test OU first">
+    Scope your initial run to a non-critical OU to verify behavior:
+
+    ```powershell
+    .\ActiveDirectory\Get-ADUserReport.ps1 -SearchBase "OU=Test,DC=domain,DC=com"
+    ```
+  </Step>
+</Steps>

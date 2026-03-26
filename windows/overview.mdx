@@ -1,0 +1,39 @@
+---
+title: "Windows Administration Scripts"
+description: PowerShell scripts for Windows Server and workstation administration
+---
+
+This section covers PowerShell scripts for Windows Server and workstation administration. Scripts here address common administration tasks including network diagnostics, system configuration, and device management.
+
+<Warning>
+  Most scripts in this section require an elevated PowerShell session. Right-click PowerShell and select **Run as Administrator** before executing any script here.
+</Warning>
+
+## What's available
+
+The Windows section of the toolkit is organized by technology area:
+
+```
+Windows/
+└── Netsh/          # Network trace capture scripts
+```
+
+The toolkit will grow with more Windows administration scripts over time. Scripts are contributed from real production environments and cover areas including network diagnostics, system hardening, and deployment automation.
+
+## Related resources
+
+For Windows device management via Microsoft Intune, see the Intune section of this toolkit, which includes scripts such as a Debloat Windows script for removing built-in applications from managed devices.
+
+## Prerequisites
+
+- PowerShell 5.1 or later (PowerShell 7+ recommended)
+- Administrator rights on the target machine
+- Sufficient disk space for any output files
+
+## Available scripts
+
+<CardGroup cols={2}>
+  <Card title="Network Trace Capture" icon="network" href="/windows/netsh-tracing">
+    Automated multi-session netsh network trace capture with timestamped filenames and automatic compression.
+  </Card>
+</CardGroup>

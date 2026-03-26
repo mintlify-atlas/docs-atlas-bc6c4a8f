@@ -1,0 +1,106 @@
+---
+title: "macOS Management"
+description: "Intune scripts for macOS device management"
+---
+
+Microsoft Intune supports macOS device management, enabling organizations to manage Apple Mac computers alongside Windows devices from the same admin center. The macOS scripts section of this toolkit is a placeholder that will expand as more macOS-specific scripts are contributed.
+
+<Note>
+  This section will grow as more macOS Intune scripts are added to the toolkit. If you have macOS scripts to contribute, follow the same structure used in the Windows sections — a folder per script with a README and the script file(s).
+</Note>
+
+## How macOS scripting in Intune works
+
+MacOS devices managed by Intune use **shell scripts** (bash or zsh) rather than PowerShell. Scripts are deployed through Intune's **Device Scripts** feature, which runs them on enrolled macOS devices.
+
+### Key differences from Windows PowerShell scripts
+
+| Aspect | Windows (PowerShell) | macOS (Shell) |
+|--------|---------------------|---------------|
+| Language | PowerShell (`.ps1`) | Bash / Zsh (`.sh`) |
+| Execution context | SYSTEM or logged-on user | Root or logged-in user |
+| Feature used | Device Scripts / Proactive Remediations | Device Scripts |
+| Compliance scripts | Custom Compliance (PowerShell) | Not supported for custom compliance |
+| Script signing | Optional (configurable) | Not required |
+| Re-run behavior | Configurable schedule | Run once, or on each check-in |
+
+### macOS Device Scripts in Intune
+
+Device Scripts on macOS run as a one-time or recurring task. They are suitable for:
+- Installing agents or software
+- Applying configuration settings via `defaults write` or configuration profiles
+- Running post-enrollment setup tasks
+- Collecting device information
+
+## Deploying a shell script via Intune
+
+<Steps>
+  <Step title="Prepare your shell script">
+    Write a standard bash script. The script must exit with `0` for success or a non-zero code to indicate failure. Output written to stdout/stderr is captured in the Intune management extension logs.
+
+    ```bash Example script structure
+    #!/bin/bash
+
+    # Check if something is already configured
+    if [ -f "/etc/company/configured" ]; then
+        echo "Already configured. Exiting."
+        exit 0
+    fi
+
+    # Perform configuration
+    mkdir -p /etc/company
+    touch /etc/company/configured
+    echo "Configuration applied."
+    exit 0
+    ```
+  </Step>
+  <Step title="Upload the script to Intune">
+    In the [Intune admin center](https://endpoint.microsoft.com/), navigate to **Devices** > **macOS** > **Shell scripts** > **Add**.
+
+    Upload your `.sh` file and configure:
+    - **Run script as signed-in user** — set to `Yes` for user-context tasks, `No` to run as root
+    - **Hide script notifications on devices** — typically set to `Yes` for silent deployment
+    - **Script frequency** — how often the script runs (once, daily, weekly, etc.)
+    - **Max number of times to retry if script fails** — set a retry count for reliability
+  </Step>
+  <Step title="Assign to device groups">
+    Assign the script policy to your macOS device groups. The Intune management agent (Microsoft Intune Company Portal) will deliver and execute the script on enrolled devices.
+  </Step>
+  <Step title="Monitor results">
+    Monitor script execution status under **Devices** > **macOS** > **Shell scripts** > select your script > **Device status**. View success/failure counts and individual device results.
+  </Step>
+</Steps>
+
+## macOS compliance in Intune
+
+Unlike Windows, macOS does not currently support Intune Custom Compliance scripts. macOS compliance is enforced through:
+
+- **Built-in compliance settings** — OS version requirements, password policies, encryption (FileVault), Gatekeeper, firewall state
+- **Configuration profiles** — MDM payloads for system preferences, restrictions, and security settings
+- **Third-party compliance integrations** — some security tools (e.g., CrowdStrike, Jamf) can report compliance posture back to Intune via partner compliance APIs
+
+<Tip>
+  For organizations managing both Windows and macOS with Intune, consider using Microsoft Defender for Endpoint on macOS — it provides compliance signal (AV status, threat detection) that Intune can use in Conditional Access policies.
+</Tip>
+
+## Logging on macOS
+
+Shell scripts deployed by Intune log their output to:
+
+```
+/Library/Logs/Microsoft/Intune/
+```
+
+You can also add explicit logging within your scripts:
+
+```bash
+#!/bin/bash
+
+LOG="/Library/Logs/Microsoft/Intune/my-script.log"
+exec > "$LOG" 2>&1
+
+echo "$(date) - Script started"
+# ... script logic ...
+echo "$(date) - Script completed"
+exit 0
+```

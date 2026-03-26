@@ -1,0 +1,214 @@
+---
+title: "User Management"
+description: PowerShell scripts for Active Directory user account management, including queries, reporting, account creation, and enable/disable operations.
+---
+
+These scripts handle the most common AD user management tasks: querying accounts, generating reports, modifying attributes, and managing account status. All examples use standard `ActiveDirectory` module cmdlets and are compatible with PowerShell 5.1 and later.
+
+<Warning>
+  Before running any bulk modification script, take an export of the affected accounts first. Use `Get-ADUser` with `Export-Csv` to create a backup you can restore from if something goes wrong.
+</Warning>
+
+## Common parameters
+
+Most user management scripts accept these standard parameters:
+
+| Parameter | Description | Example |
+|-----------|-------------|--------|
+| `-SearchBase` | Limits scope to a specific OU | `"OU=Users,DC=domain,DC=com"` |
+| `-Filter` | AD filter expression | `"Enabled -eq $true"` |
+| `-Properties` | Additional attributes to return | `"Department,Title,LastLogonDate"` |
+| `-Server` | Target a specific domain controller | `"dc01.domain.com"` |
+
+## Querying user accounts
+
+### Basic queries
+
+```powershell
+# Get a single user by samAccountName
+Get-ADUser -Identity jdoe
+
+# Get a user with extended properties
+Get-ADUser -Identity jdoe -Properties Department, Title, EmailAddress, LastLogonDate
+
+# Find all users in a specific OU
+Get-ADUser -Filter * -SearchBase "OU=Users,DC=domain,DC=com"
+
+# Find all enabled users
+Get-ADUser -Filter "Enabled -eq $true" -SearchBase "OU=Users,DC=domain,DC=com"
+
+# Find users who have not logged in within 90 days
+$cutoff = (Get-Date).AddDays(-90)
+Get-ADUser -Filter "LastLogonDate -lt $cutoff -and Enabled -eq $true" `
+    -Properties LastLogonDate
+```
+
+### Filtering by department or title
+
+```powershell
+# Find all users in the Nursing department
+Get-ADUser -Filter "Department -eq 'Nursing'" -Properties Department, Title
+
+# Find all managers
+Get-ADUser -Filter "Title -like '*Manager*'" -Properties Title, Department
+```
+
+## Generating user reports
+
+```powershell
+# Full user report exported to CSV
+.\ActiveDirectory\Get-ADUserReport.ps1 -SearchBase "OU=Users,DC=domain,DC=com"
+
+# Manual equivalent using standard cmdlets
+Get-ADUser -Filter * `
+    -SearchBase "OU=Users,DC=domain,DC=com" `
+    -Properties DisplayName, EmailAddress, Department, Title, Enabled, LastLogonDate, PasswordLastSet |
+    Select-Object DisplayName, SamAccountName, EmailAddress, Department, Title, Enabled, LastLogonDate, PasswordLastSet |
+    Export-Csv -Path "C:\Reports\ADUsers_$(Get-Date -Format yyyyMMdd).csv" -NoTypeInformation
+```
+
+## Creating and modifying accounts
+
+<Tabs>
+  <Tab title="Single user">
+    ### Create a new user
+
+    ```powershell
+    New-ADUser `
+        -Name "Jane Smith" `
+        -GivenName "Jane" `
+        -Surname "Smith" `
+        -SamAccountName "jsmith" `
+        -UserPrincipalName "jsmith@domain.com" `
+        -Path "OU=Users,OU=Staff,DC=domain,DC=com" `
+        -Department "IT" `
+        -Title "Systems Administrator" `
+        -AccountPassword (ConvertTo-SecureString "TempP@ss1" -AsPlainText -Force) `
+        -ChangePasswordAtLogon $true `
+        -Enabled $true
+    ```
+
+    ### Modify a single user's attributes
+
+    ```powershell
+    Set-ADUser -Identity jsmith `
+        -Title "Senior Systems Administrator" `
+        -Department "IT Operations" `
+        -OfficePhone "555-1234"
+    ```
+
+    ### Move a user to a different OU
+
+    ```powershell
+    $user = Get-ADUser -Identity jsmith
+    Move-ADObject -Identity $user.DistinguishedName `
+        -TargetPath "OU=Admins,DC=domain,DC=com"
+    ```
+  </Tab>
+  <Tab title="Bulk operations">
+    <Warning>
+      Export affected accounts to CSV before running bulk changes. This gives you a rollback reference.
+    </Warning>
+
+    ### Bulk-create users from CSV
+
+    Prepare a CSV with columns: `Name`, `GivenName`, `Surname`, `SamAccountName`, `Department`, `Title`, `OU`
+
+    ```powershell
+    $users = Import-Csv -Path "C:\Imports\new_users.csv"
+
+    foreach ($user in $users) {
+        New-ADUser `
+            -Name $user.Name `
+            -GivenName $user.GivenName `
+            -Surname $user.Surname `
+            -SamAccountName $user.SamAccountName `
+            -UserPrincipalName "$($user.SamAccountName)@domain.com" `
+            -Path $user.OU `
+            -Department $user.Department `
+            -Title $user.Title `
+            -AccountPassword (ConvertTo-SecureString "TempP@ss1" -AsPlainText -Force) `
+            -ChangePasswordAtLogon $true `
+            -Enabled $true
+    }
+    ```
+
+    ### Bulk-update a department attribute
+
+    ```powershell
+    Get-ADUser -Filter "Department -eq 'Old Department Name'" -Properties Department |
+        Set-ADUser -Department "New Department Name"
+    ```
+
+    ### Bulk-move users to a new OU
+
+    ```powershell
+    $targetOU = "OU=NewLocation,DC=domain,DC=com"
+
+    Get-ADUser -Filter * -SearchBase "OU=OldLocation,DC=domain,DC=com" | ForEach-Object {
+        Move-ADObject -Identity $_.DistinguishedName -TargetPath $targetOU
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Account status management
+
+<Tabs>
+  <Tab title="Single user">
+    ```powershell
+    # Disable an account
+    Disable-ADAccount -Identity jdoe
+
+    # Enable an account
+    Enable-ADAccount -Identity jdoe
+
+    # Check account status
+    Get-ADUser -Identity jdoe -Properties Enabled | Select-Object Name, Enabled
+
+    # Unlock a locked-out account
+    Unlock-ADAccount -Identity jdoe
+    ```
+  </Tab>
+  <Tab title="Bulk operations">
+    <Warning>
+      Verify the list of accounts before running bulk disable/enable operations. Use `-WhatIf` to preview changes first.
+    </Warning>
+
+    ```powershell
+    # Preview which accounts would be disabled (WhatIf)
+    $cutoff = (Get-Date).AddDays(-180)
+    Get-ADUser -Filter "LastLogonDate -lt $cutoff -and Enabled -eq $true" `
+        -Properties LastLogonDate |
+        Disable-ADAccount -WhatIf
+
+    # Disable accounts inactive for 180+ days
+    $cutoff = (Get-Date).AddDays(-180)
+    Get-ADUser -Filter "LastLogonDate -lt $cutoff -and Enabled -eq $true" `
+        -Properties LastLogonDate |
+        Disable-ADAccount
+
+    # Bulk-enable accounts from a CSV list
+    Import-Csv -Path "C:\Imports\accounts_to_enable.csv" | ForEach-Object {
+        Enable-ADAccount -Identity $_.SamAccountName
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Password management
+
+```powershell
+# Force a password reset at next logon
+Set-ADUser -Identity jdoe -ChangePasswordAtLogon $true
+
+# Reset a password programmatically
+Set-ADAccountPassword -Identity jdoe `
+    -Reset `
+    -NewPassword (ConvertTo-SecureString "NewTempP@ss1" -AsPlainText -Force)
+
+# Find accounts with passwords that never expire
+Get-ADUser -Filter "PasswordNeverExpires -eq $true" -Properties PasswordNeverExpires |
+    Select-Object Name, SamAccountName, PasswordNeverExpires |
+    Export-Csv -Path "C:\Reports\NeverExpirePasswords.csv" -NoTypeInformation
+```

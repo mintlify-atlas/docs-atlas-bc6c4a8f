@@ -1,0 +1,177 @@
+---
+title: "Win32 App Deployment"
+description: "PowerShell install and uninstall scripts for Win32 app deployment via Microsoft Intune"
+---
+
+Microsoft Intune supports deploying traditional Win32 applications (`.exe` and `.msi` installers) through the **Windows app (Win32)** app type. Win32 apps must be packaged into `.intunewin` format using the **Microsoft Win32 Content Prep Tool** (`IntuneWinAppUtil.exe`) before they can be uploaded to Intune.
+
+This section contains install and uninstall PowerShell scripts for Win32 apps deployed via Intune.
+
+## Packaging apps with IntuneWinAppUtil
+
+<Steps>
+  <Step title="Download the Content Prep Tool">
+    Download `IntuneWinAppUtil.exe` from the [Microsoft Win32 Content Prep Tool repository](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool).
+  </Step>
+  <Step title="Prepare your source folder">
+    Place the installer file (`.msi` or `.exe`) and your `install.ps1` / `uninstall.ps1` scripts into a single source folder.
+  </Step>
+  <Step title="Run IntuneWinAppUtil">
+    ```powershell
+    IntuneWinAppUtil.exe -c C:\AppSource -s install.ps1 -o C:\AppOutput
+    ```
+    - `-c` — source folder containing your app files
+    - `-s` — the setup file (your install script or installer)
+    - `-o` — output folder for the `.intunewin` package
+  </Step>
+  <Step title="Upload to Intune">
+    In the [Intune admin center](https://endpoint.microsoft.com/), go to **Apps** > **Windows** > **Add** > **Windows app (Win32)**. Upload the `.intunewin` file and configure the install/uninstall commands, detection rules, and assignments.
+  </Step>
+</Steps>
+
+<Warning>
+  Always test Win32 app install and uninstall scripts locally (as SYSTEM, using `psexec -s powershell.exe`) before deploying through Intune. A broken uninstall script may leave apps in a partially removed state that blocks future deployments.
+</Warning>
+
+## Available apps
+
+<AccordionGroup>
+
+  <Accordion title="Azul Zulu OpenJRE">
+    Installs the **Azul Zulu Build of OpenJDK JRE** (version 21.0.4) silently to `C:\java\jdk21`. The install script uses `msiexec` with the `ZuluInstallation` and `FeatureJavaHome` features enabled.
+
+    The uninstall script dynamically discovers the installed package reference using `Get-Package` and passes it to `msiexec /x` for silent removal.
+
+    **Install command (Intune):**
+    ```
+    powershell.exe -ExecutionPolicy Bypass -File install-zulu-jre.ps1
+    ```
+
+    **Uninstall command (Intune):**
+    ```
+    powershell.exe -ExecutionPolicy Bypass -File uninstall-zulu-jre.ps1
+    ```
+
+    **Detection rule:** File or registry presence of the installed JRE at `C:\java\jdk21`.
+
+    <CodeGroup>
+    ```powershell install-zulu-jre.ps1
+    # Silently install Azul Zulu JRE version 21.0.4
+    msiexec /i zulu21.36.17-ca-jre21.0.4-win_x64.msi `
+             ADDLOCAL=ZuluInstallation,FeatureJavaHome `
+             INSTALLDIR="c:\java\jdk21" `
+             /qn
+    ```
+
+    ```powershell uninstall-zulu-jre.ps1
+    # Silently uninstall Azul Zulu JRE
+    msiexec /x (Get-Package 'Azul Zulu JRE*').FastPackageReference /qn
+    ```
+    </CodeGroup>
+
+    <Note>
+      The install script references the MSI filename `zulu21.36.17-ca-jre21.0.4-win_x64.msi` directly. This file must be included in the same source folder when packaging with `IntuneWinAppUtil`. Update the filename if using a different Zulu JRE version.
+    </Note>
+  </Accordion>
+
+  <Accordion title="SnagIT 2024">
+    Installs **SnagIT 2024** silently using an MSI installer combined with an `.mst` MSI transform file. The transform file allows pre-configuring install options such as license keys and feature sets without modifying the original installer.
+
+    The uninstall script uses TechSmith's `UninstallerTool_1_2_0.exe` to silently remove SnagIT 2024.
+
+    **Install command (Intune):**
+    ```
+    powershell.exe -ExecutionPolicy Bypass -File install-snagit-2024.ps1
+    ```
+
+    **Uninstall command (Intune):**
+    ```
+    powershell.exe -ExecutionPolicy Bypass -File uninstall-snagit-2024.ps1
+    ```
+
+    <CodeGroup>
+    ```powershell install-snagit-2024.ps1
+    # Install SnagIT 2024 silently without a restart
+    msiexec /i "snagit.msi" TRANSFORMS="snagit.mst" /qn /norestart
+    ```
+
+    ```powershell uninstall-snagit-2024.ps1
+    # Silently uninstall SnagIT 2024 using TechSmith's Uninstaller Tool
+    .\UninstallerTool_1_2_0.exe -product snagit -remove 24
+    ```
+    </CodeGroup>
+
+    <Note>
+      The following files must all be included in your source folder before packaging:
+      - `snagit.msi` — the SnagIT 2024 MSI installer
+      - `snagit.mst` — the MSI transform file with your configuration
+      - `UninstallerTool_1_2_0.exe` — TechSmith's silent uninstaller tool
+
+      Refer to the [SnagIT 2024 MSI Installation Guide](https://assets.techsmith.com/Docs/Snagit-2024-MSI-Installation-Guide.pdf) for instructions on creating the `.mst` transform file.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Datto RMM Agent">
+    Downloads and installs the **Datto RMM (Kaseya) agent** directly from the Datto platform using a PowerShell script. No pre-staged installer is required — the script downloads the agent installer at runtime from Datto's CDN using the configured platform name and Site ID.
+
+    The script:
+    1. Checks whether the Datto RMM service (`CagService`) is already installed and exits cleanly if so.
+    2. Downloads the agent installer from `https://{Platform}.centrastage.net/csm/profile/downloadAgent/{SiteID}`.
+    3. Runs the installer silently and removes the temporary installer file.
+
+    **Install command (Intune):**
+    ```
+    powershell.exe -ExecutionPolicy Bypass -File IntelyCare_Datto_RMM_Agent_Install-Vidal.ps1
+    ```
+
+    ```powershell IntelyCare_Datto_RMM_Agent_Install-Vidal.ps1
+    $Platform = "vidal"
+    $SiteID   = "f7aa7b18-5a02-47b2-8e45-7eaa43ee15ec"
+
+    # Exit immediately if agent is already installed
+    If (Get-Service CagService -ErrorAction SilentlyContinue) {
+        Write-Output "Datto RMM Agent already installed on this device"
+        exit
+    }
+
+    # Download the agent installer
+    $AgentURL    = "https://$Platform.centrastage.net/csm/profile/downloadAgent/$SiteID"
+    $DownloadStart = Get-Date
+    Write-Output "Starting Agent download at $(Get-Date -Format HH:mm) from $AgentURL"
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Enum]::ToObject([Net.SecurityProtocolType], 3072)
+    }
+    catch {
+        Write-Output "Cannot download Agent: TLS 1.2 is required."
+        exit 1
+    }
+
+    try {
+        (New-Object System.Net.WebClient).DownloadFile($AgentURL, "$env:TEMP\DRMMSetup.exe")
+    }
+    catch {
+        $host.ui.WriteErrorLine("Agent installer download failed: $_")
+        exit 1
+    }
+
+    Write-Output "Download completed in $((Get-Date).Subtract($DownloadStart).Seconds) seconds"
+
+    # Install the agent
+    $InstallStart = Get-Date
+    Write-Output "Starting Agent install at $(Get-Date -Format HH:mm)..."
+    & "$env:TEMP\DRMMSetup.exe" | Out-Null
+    Write-Output "Install completed in $((Get-Date).Subtract($InstallStart).Seconds) seconds."
+
+    Remove-Item "$env:TEMP\DRMMSetup.exe" -Force
+    Exit
+    ```
+
+    <Note>
+      Update `$Platform` and `$SiteID` to match your Datto RMM platform name and target site before deploying. The Site ID is found in the Datto RMM portal under your site's **Settings** page.
+    </Note>
+
+    **Detection rule:** Service existence — check for the `CagService` Windows service.
+  </Accordion>
+
+</AccordionGroup>

@@ -1,0 +1,55 @@
+---
+title: "VMware PowerCLI Scripts"
+description: PowerShell automation for VMware vSphere using PowerCLI
+---
+
+This section covers PowerShell automation for VMware vSphere environments using the VMware PowerCLI module. Scripts here are built and tested in production vSphere environments to solve real-world administration challenges.
+
+<Note>
+  These scripts were built and tested in production vSphere environments as part of a toolkit assembled from 20 years of hands-on enterprise IT experience.
+</Note>
+
+## Required module
+
+Most scripts in this section require the `VMware.PowerCLI` module (or `VCF.PowerCLI` for VCF environments). Install it from the PowerShell Gallery:
+
+```powershell
+Install-Module -Name VMware.PowerCLI -Scope CurrentUser
+```
+
+## Configure PowerCLI
+
+Before running scripts, configure PowerCLI to disable the Customer Experience Improvement Program (CEIP) prompt and suppress invalid certificate warnings in lab or internal environments:
+
+```powershell
+# Disable CEIP prompt
+Set-PowerCLIConfiguration -ParticipateInCEIP $false -Confirm:$false
+
+# Ignore invalid certificates (use only in trusted internal environments)
+Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false
+```
+
+## Connect to vCenter
+
+For standard username/password authentication, connect to a vCenter Server with:
+
+```powershell
+Connect-VIServer -Server "vcenter.domain.com" -Credential (Get-Credential)
+```
+
+For environments using an external identity provider (such as Microsoft Entra ID), see the Entra ID federation page.
+
+## Example usage
+
+```powershell
+# Example: VM inventory report
+.\VMWare\PowerCLI\Get-VMInventory.ps1 -VCenterServer "vcenter.domain.com"
+```
+
+## Available scripts
+
+<CardGroup cols={2}>
+  <Card title="Entra ID Federation" icon="key" href="/vmware/entra-id-federation">
+    Authenticate to vCenter using Microsoft Entra ID federated logins via OAuth 2.0 and PowerCLI.
+  </Card>
+</CardGroup>

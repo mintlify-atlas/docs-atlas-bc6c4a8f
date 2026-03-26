@@ -1,0 +1,440 @@
+---
+title: "Proactive Remediations"
+description: "Endpoint Analytics Proactive Remediation detection and remediation scripts for Windows"
+---
+
+Proactive Remediations are Intune's equivalent of ConfigMgr's Configuration Items and Baselines. Each remediation consists of a **detection script** and a **remediation script**. The detection script evaluates the current device state — if it exits with a non-zero code, Intune runs the remediation script to bring the device back into the desired state.
+
+## How they work
+
+<Steps>
+  <Step title="Detection script runs">
+    Intune runs the detection script on the device on the configured schedule. The script checks for a specific condition.
+  </Step>
+  <Step title="Exit code evaluated">
+    - `Exit 0` — device is compliant; remediation script does **not** run.
+    - `Exit 1` (non-zero) — device is non-compliant; Intune queues the remediation script.
+  </Step>
+  <Step title="Remediation script runs">
+    If the detection script returned non-zero, Intune runs the remediation script to correct the issue.
+  </Step>
+  <Step title="Detection re-runs">
+    On the next scheduled cycle, the detection script runs again to confirm the remediation succeeded.
+  </Step>
+</Steps>
+
+## Where to find them in Intune
+
+Navigate to **Reports** > **Endpoint analytics** > **Proactive Remediations** in the [Microsoft Intune admin center](https://endpoint.microsoft.com/).
+
+<Warning>
+  Test all detection and remediation script pairs against a pilot group before assigning to production. A poorly written remediation script can cause widespread configuration changes across your entire device fleet.
+</Warning>
+
+## Available remediations
+
+<AccordionGroup>
+
+  <Accordion title="Change WinVer and OEM Info">
+    Customizes the WinVer branding and OEM information shown in Windows Settings and the `winver` dialog. Useful for setting a consistent corporate identity on managed devices.
+
+    **What it detects:** Checks registry entries under `HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation` and `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion` to verify values like `SupportURL`, `Manufacturer`, `RegisteredOwner`, and `RegisteredOrganization` match expected values.
+
+    **What it remediates:** Creates or updates each registry key-value pair to match the desired branding configuration.
+
+    <CodeGroup>
+    ```powershell Detect-WinVer-OEM.ps1
+    $BrandingContent = @"
+    RegKeyPath,Key,Value
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation","SupportURL","https://advizex.service-now.com/"
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation","Manufacturer","Lenovo"
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation","SupportHours","Standard: 8AM - 5PM EST"
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation","SupportPhone","(617) 715-3774"
+    "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion","RegisteredOwner","IntelyCare"
+    "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion","RegisteredOrganization","IntelyCare"
+    "@
+
+    $Branding = $BrandingContent | ConvertFrom-Csv -delimiter ","
+
+    foreach ($Brand in $Branding) {
+        $ExistingValue = (Get-Item -Path $($Brand.RegKeyPath)).GetValue($($Brand.Key))
+        if ($ExistingValue -ne $($Brand.Value)) {
+          Write-Host $($Brand.Key) "Not Equal"
+          Exit 1
+        }
+    }
+    Exit 0
+    ```
+
+    ```powershell Remediate-WinVer-OEM.ps1
+    # Customize the following registry entries with your own info.
+    $BrandingContent = @"
+    RegKeyPath,Key,Value
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation","SupportURL","https://advizex.service-now.com/"
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation","Manufacturer","Lenovo"
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation","SupportHours","Standard: 8AM - 5PM EST"
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation","SupportPhone","(617) 715-3774"
+    "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion","RegisteredOwner","IntelyCare"
+    "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion","RegisteredOrganization","IntelyCare"
+    "@
+
+    $Branding = $BrandingContent | ConvertFrom-Csv -delimiter ","
+
+    foreach ($Brand in $Branding) {
+        IF (!(Test-Path ($Brand.RegKeyPath))) {
+            New-Item -Path $RegKeyPath -Force | Out-Null
+        }
+        $ExistingValue = (Get-Item -Path $($Brand.RegKeyPath)).GetValue($($Brand.Key))
+        if ($ExistingValue -ne $($Brand.Value)) {
+            Set-ItemProperty -Path $($Brand.RegKeyPath) -Name $($Brand.Key) -Value $($Brand.Value) -Force
+        }
+    }
+    Exit 0
+    ```
+    </CodeGroup>
+
+    <Tip>
+      Update the `$BrandingContent` here-string in both scripts with your own organization's values before deploying.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Clear Microsoft Apps Cache">
+    Checks and clears the Microsoft 365 Apps cache (`%LOCALAPPDATA%\Microsoft\Office\16.0\Wef`). If Microsoft 365 apps are running when the script executes, a WPF dialog prompts the user to close them before the cache is cleared.
+
+    **What it detects / remediates:** This is a combined detection+action script. It checks for running Microsoft 365 processes (`OUTLOOK`, `WINWORD`, `EXCEL`, `POWERPNT`, `ONENOTE`, etc.), prompts the user if needed, then clears the cache folder.
+
+    This script is based on the built-in Microsoft proactive remediation, but with two critical bugs fixed:
+
+    **Bug 1 — missing `$` on `$ctr` variable:**
+
+    Microsoft's original code used `ctr++` (no `$`), which PowerShell treats as a command name rather than a variable increment. This caused an infinite loop because `$ctr` never incremented past 0.
+
+    ```powershell Microsoft's buggy original
+    $ctr = 0
+    while ($curSvcStat -eq "Stopped") {
+        Start-Sleep -Seconds 5
+        ctr++          # <-- treated as a command, not a variable increment
+        if (ctr -eq 12) {  # <-- always false; infinite loop
+            Write-Output "Office C2R service could not be started after 60 seconds"
+            exit 1
+        }
+    }
+    ```
+
+    ```powershell Corrected code
+    $ctr = 0
+    while ($curSvcStat -eq "Stopped") {
+        Start-Sleep -Seconds 5
+        $ctr++         # correct
+        if ($ctr -eq 12) {
+            Write-Output "Office C2R service could not be started after 60 seconds"
+            exit 1
+        }
+    }
+    ```
+
+    **Bug 2 — stale service status variable:**
+
+    The original code set `$curSvcStat` once and never refreshed it inside the `while` loop, so even if the service started, the loop would never exit.
+
+    ```powershell Corrected condition
+    # Instead of checking the stale $curSvcStat variable:
+    while ((Get-Service $svcCur).Status -ne "Running")
+    ```
+  </Accordion>
+
+  <Accordion title="Create Local Admin Account">
+    Detects whether a named local administrator account exists on the device. If it does not exist, the remediation script creates it with a no-password policy and sets `PasswordNeverExpires`.
+
+    **What it detects:** Queries `Get-LocalUser` to check whether the target account name exists.
+
+    **What it remediates:** Creates the local user account using `New-LocalUser` and adds it to the local Administrators group.
+
+    <Note>
+      Replace `XXXX-XXXXX` in both scripts with the actual local admin account name for your organization before deploying.
+    </Note>
+
+    <CodeGroup>
+    ```powershell Detect-Local_Admin_Account.ps1
+    # Replace XXXX-XXXXX with the name of the actual local admin account
+    $userName = "XXXX-XXXXX"
+    $Userexist = (Get-LocalUser).Name -Contains $userName
+    if ($userexist) {
+      Write-Host "$userName exist"
+      Exit 0
+    }
+    Else {
+      Write-Host "$userName does not Exists"
+      Exit 1
+    }
+    ```
+
+    ```powershell Remediate-Local_Admin_Account.ps1
+    # Replace XXXX-XXXXX with the name of the actual local admin account
+    $userName = "XXXX-XXXXX"
+    $userexist = (Get-LocalUser).Name -Contains $userName
+    if($userexist -eq $false) {
+      try {
+         New-LocalUser -Name $username -FullName $username `
+           -Description "Company's Local Admin user account" `
+           -NoPassword | Set-LocalUser -PasswordNeverExpires 1
+         Exit 0
+       }
+      Catch {
+         Write-error $_
+         Exit 1
+       }
+    }
+    ```
+    </CodeGroup>
+  </Accordion>
+
+  <Accordion title="Disable Run Command">
+    Prevents users from accessing the Win+R Run dialog by setting a registry key in the user's `HKCU` hive under `Explorer` policies.
+
+    **What it detects:** Checks whether `HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\NoRun` is set to `1`.
+
+    **What it remediates:** Creates the registry path if it doesn't exist and sets `NoRun = 1 (DWORD)`.
+
+    <CodeGroup>
+    ```powershell Detect — Disable Run Command
+    $regkey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer"
+    $name   = "NoRun"
+    $value  = 1
+
+    If (!(Test-Path $regkey)) {
+        Write-Output 'Disable Run Command RegKey not available - Remediate'
+        Exit 1
+    }
+
+    $check = (Get-ItemProperty -Path $regkey -Name $name -ErrorAction SilentlyContinue).$name
+    if ($check -eq $value) {
+        Write-Output 'Disable Run Command RegKey is set - No remediation required'
+        Exit 0
+    }
+    else {
+        Write-Output 'Disable Run Command RegKey is not set - Will Remediate now'
+        Exit 1
+    }
+    ```
+
+    ```powershell Remediate — Disable Run Command
+    $regkey = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer"
+    $name   = "NoRun"
+    $value  = 1
+
+    If (!(Test-Path $regkey)) {
+        New-Item -Path $regkey -ErrorAction Stop
+    }
+
+    if (!(Get-ItemProperty -Path $regkey -Name $name -ErrorAction SilentlyContinue)) {
+        New-ItemProperty -Path $regkey -Name $name -Value $value -PropertyType DWORD -ErrorAction Stop
+        Write-Output "Disable Run Command RegKey Remediation Complete"
+        Exit 0
+    }
+
+    Set-ItemProperty -Path $regkey -Name $name -Value $value -ErrorAction Stop
+    Write-Output "Disable Run Command RegKey Remediation Complete"
+    Exit 0
+    ```
+    </CodeGroup>
+
+    <Note>
+      This remediation targets `HKCU` (current user context). Configure the Proactive Remediation to run in the **logged-on user** context, not the System context, for this to apply correctly.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Disable Windows Fast Boot">
+    Detects and disables Windows Fast Boot (Hybrid Boot) by setting `HiberbootEnabled = 0` in the registry. Fast Boot can interfere with full shutdown/startup cycles required by some enterprise configurations and BIOS updates.
+
+    **What it detects:** Reads `HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power\HiberbootEnabled`. Exits 0 if the value is `0` (disabled), exits 1 otherwise.
+
+    **What it remediates:** Sets `HiberbootEnabled = 0 (DWORD)` using `New-ItemProperty` with `-Force`.
+
+    <CodeGroup>
+    ```powershell Detect-Fastboot.ps1
+    $Path  = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power"
+    $Name  = "HiberbootEnabled"
+    $Value = 0
+
+    Try {
+        $Registry = Get-ItemProperty -Path $Path -Name $Name -ErrorAction Stop `
+                    | Select-Object -ExpandProperty $Name
+        If ($Registry -eq $Value) {
+            Write-Output "Compliant"
+            Exit 0
+        }
+        Write-Warning "Not Compliant"
+        Exit 1
+    }
+    Catch {
+        Write-Warning "Not Compliant"
+        Exit 1
+    }
+    ```
+
+    ```powershell Remediate-Fastboot.ps1
+    New-ItemProperty `
+        -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' `
+        -Name 'HiberbootEnabled' `
+        -Value 0 `
+        -PropertyType DWord `
+        -Force `
+        -ErrorAction SilentlyContinue
+    ```
+    </CodeGroup>
+  </Accordion>
+
+  <Accordion title="Microsoft Store Forced Auto Update">
+    Forces a Microsoft Store app update scan. Useful when Store apps are falling behind on updates across the fleet.
+
+    **What it detects:** Queries the `MDM_EnterpriseModernAppManagement_AppManagement01` WMI class for `LastScanError`. If the value is not `0`, the apps have not been successfully updated and remediation runs.
+
+    **What it remediates:** Invokes the `UpdateScanMethod` on the same WMI class to trigger an immediate Store app update scan.
+
+    <CodeGroup>
+    ```powershell Detect-Microsoft_Store_Auto_Update.ps1
+    try {
+        $wmiObj = Get-CimInstance `
+            -Namespace "Root\cimv2\mdm\dmmap" `
+            -ClassName "MDM_EnterpriseModernAppManagement_AppManagement01"
+        if ($wmiObj.LastScanError -ne '0') {
+            Write-Output "Windows Store Apps not updated."
+            Exit 1
+        }
+        else {
+            Write-Output "Windows Store Apps updated."
+            Exit 0
+        }
+    }
+    catch {
+        Write-Output "Unable to query Store App Update status."
+        Exit 2000
+    }
+    ```
+
+    ```powershell Remediate-Microsoft_Store_Auto_Update.ps1
+    Try {
+        Get-CimInstance `
+            -Namespace "Root\cimv2\mdm\dmmap" `
+            -ClassName "MDM_EnterpriseModernAppManagement_AppManagement01" `
+        | Invoke-CimMethod -MethodName UpdateScanMethod
+        Write-Output "Windows Store Apps updated."
+        Exit 0
+    }
+    Catch {
+        Write-Output "Windows Store Apps not updated."
+        Exit 2000
+    }
+    ```
+    </CodeGroup>
+  </Accordion>
+
+  <Accordion title="Uninstall App — Zscaler">
+    Detects whether the Zscaler Client Connector is installed and silently uninstalls it. This is useful during security agent migrations or when replacing Zscaler with an alternative.
+
+    **What it detects:** Queries `HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*` for a `DisplayName` of `"Zscaler"`. Exits 1 (trigger remediation) if found, exits 0 if not found.
+
+    **What it remediates:** Runs the Zscaler uninstaller at `%ProgramFiles%\Zscaler\ZSAInstaller\uninstall.exe` with `--mode unattended`.
+
+    <CodeGroup>
+    ```powershell Detect-Zscaler.ps1
+    $appdetails = (Get-ItemProperty Registry::HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*) `
+                  | Where-Object { $_.DisplayName -eq "Zscaler" }
+    try {
+        if ($appdetails.DisplayName -eq "Zscaler") {
+            Write-Output "Zscaler is installed and will now be removed"
+            Exit 1
+        }
+        else {
+            Write-Output "Zscaler is not installed. No action required"
+            Exit 0
+        }
+    }
+    catch {
+        $errMsg = $_.exception.message
+        Write-Output $errMsg
+    }
+    ```
+
+    ```powershell Remediate-Zscaler.ps1
+    $uninstaller = "$env:ProgramFiles\Zscaler\ZSAInstaller\uninstall.exe"
+
+    if (Test-Path $uninstaller) {
+        Write-Output "Uninstalling Zscaler..."
+        Start-Process -FilePath $uninstaller -ArgumentList "--mode unattended" -NoNewWindow -Wait
+        Write-Output "Uninstallation process initiated."
+    } else {
+        Write-Output "Uninstaller not found at $uninstaller."
+    }
+    ```
+    </CodeGroup>
+  </Accordion>
+
+  <Accordion title="Windows Update — Remove WU Registry Entries">
+    Removes stale Windows Update registry entries that can prevent Windows Autopatch (or WUfB) from taking control of update settings. These entries are often left behind after migrating away from an RMM tool or Group Policy-managed update configuration.
+
+    **What it detects:** Checks for the existence of these three registry paths:
+    - `HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate`
+    - `HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\GPCache\CacheSet001\WindowsUpdate`
+    - `HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\GPCache\CacheSet002\WindowsUpdate`
+
+    Exits 1 if any path exists.
+
+    **What it remediates:** Removes all three registry paths (recursively with `-Force`) and restarts the Windows Update service (`wuauserv`).
+
+    <CodeGroup>
+    ```powershell Detect-WUPaths.ps1
+    $paths = @(
+        "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\GPCache\CacheSet001\WindowsUpdate",
+        "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\GPCache\CacheSet002\WindowsUpdate",
+        "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
+    )
+
+    $anyPathExists = $false
+
+    foreach ($path in $paths) {
+        if (Test-Path $path) {
+            $anyPathExists = $true
+            break
+        }
+    }
+
+    if ($anyPathExists) {
+        Write-Host "Registry keys do exist"
+        EXIT 1
+    } else {
+        Write-Host "Registry keys do not Exist"
+        EXIT 0
+    }
+    ```
+
+    ```powershell Remediate-WUPaths.ps1
+    $registryPathWindowsUpdate  = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
+    $registryPathCacheSet001    = "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\GPCache\CacheSet001\WindowsUpdate"
+    $registryPathCacheSet002    = "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\GPCache\CacheSet002\WindowsUpdate"
+
+    function Remove-RegistryPath($path) {
+        if (Test-Path $path) {
+            Remove-Item -Path $path -Recurse -Force
+            Write-Output "Contents of $path have been deleted successfully."
+        } else {
+            Write-Output "$path does not exist."
+        }
+    }
+
+    Remove-RegistryPath $registryPathWindowsUpdate
+    Remove-RegistryPath $registryPathCacheSet001
+    Remove-RegistryPath $registryPathCacheSet002
+
+    # Restart the Windows Update service
+    Restart-Service -Name "wuauserv" -Force
+    ```
+    </CodeGroup>
+
+    <Warning>
+      Removing `HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate` will eliminate all Group Policy-managed Windows Update settings on the device. Only use this remediation on devices that are intended to be managed by Windows Autopatch or WUfB, not by GPO.
+    </Warning>
+  </Accordion>
+
+</AccordionGroup>

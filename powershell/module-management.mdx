@@ -1,0 +1,184 @@
+---
+title: "Module Management"
+description: Automatic PowerShell module installation, updating, and importing with the Ensure-Module helper
+---
+
+`Ensure-Module` is a helper function defined in the PowerShell profile that handles the full lifecycle of a module in a single call: it checks whether the module is installed, installs or updates it if needed, applies any module-specific configuration, and finally imports it into the current session.
+
+---
+
+## Full function code
+
+```powershell
+# Ensure a module is installed, updated if needed, and imported
+function Ensure-Module {
+    param (
+        [Parameter(Mandatory = $true)][string]$Name,
+        [string]$Repository = "PSGallery",
+        [switch]$ForceInstall
+    )
+
+    $installed = Get-Module -ListAvailable -Name $Name | Sort-Object Version -Descending | Select-Object -First 1
+    $online = Find-Module -Name $Name -Repository $Repository -ErrorAction SilentlyContinue
+
+    if (-not $installed) {
+        try {
+            Write-Host "📦 Installing module: $Name" -ForegroundColor Yellow
+            Install-Module -Name $Name -Repository $Repository -Scope CurrentUser -Force:$ForceInstall -AllowClobber -ErrorAction Stop -Confirm:$False
+        } catch {
+            Write-Host "❌ Failed to install module: $Name" -ForegroundColor Red
+            Write-Host $_.Exception.Message
+        }
+    } elseif ($online.Version -gt $installed.Version) {
+        try {
+            Write-Host "🔄 Updating $Name from $($installed.Version) → $($online.Version)" -ForegroundColor Yellow
+            Update-Module -Name $Name -Force:$ForceInstall -ErrorAction Stop -Confirm:$False
+        } catch {
+            Write-Host "❌ Failed to update module: $Name" -ForegroundColor Red
+            Write-Host $_.Exception.Message
+        }
+    }
+
+    if ($Name -eq "VCF.PowerCLI") {
+        Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        Set-PowerCLIConfiguration -Scope User -InvalidCertificateAction Ignore -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    try {
+        Import-Module $Name -ErrorAction SilentlyContinue
+        Write-Host "✅ Module '$Name' loaded successfully." -ForegroundColor Green
+    } catch {
+        Write-Host "⚠️ Failed to import $Name." -ForegroundColor DarkYellow
+    }
+}
+```
+
+---
+
+## How it works
+
+<Steps>
+  <Step title="Check if the module is installed">
+    `Get-Module -ListAvailable` searches all module paths on the system. If multiple versions exist, the highest version is selected.
+
+    ```powershell
+    $installed = Get-Module -ListAvailable -Name $Name | Sort-Object Version -Descending | Select-Object -First 1
+    ```
+  </Step>
+
+  <Step title="Find the latest version online">
+    `Find-Module` queries the configured repository (PSGallery by default) for the current published version. `-ErrorAction SilentlyContinue` prevents failures when the gallery is unreachable.
+
+    ```powershell
+    $online = Find-Module -Name $Name -Repository $Repository -ErrorAction SilentlyContinue
+    ```
+  </Step>
+
+  <Step title="Install if not present">
+    If `$installed` is null the module has never been installed. `Install-Module` fetches it from the repository.
+
+    ```powershell
+    Install-Module -Name $Name -Repository $Repository -Scope CurrentUser -Force:$ForceInstall -AllowClobber -ErrorAction Stop -Confirm:$False
+    ```
+  </Step>
+
+  <Step title="Update if outdated">
+    If a newer version exists online than what is installed, `Update-Module` upgrades it in place.
+
+    ```powershell
+    Update-Module -Name $Name -Force:$ForceInstall -ErrorAction Stop -Confirm:$False
+    ```
+  </Step>
+
+  <Step title="Apply VCF.PowerCLI configuration">
+    When the module name is `VCF.PowerCLI`, two additional settings are applied automatically: CEIP telemetry is disabled and invalid TLS certificates are set to be ignored (useful in lab and internal vSphere environments).
+
+    ```powershell
+    if ($Name -eq "VCF.PowerCLI") {
+        Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        Set-PowerCLIConfiguration -Scope User -InvalidCertificateAction Ignore -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    }
+    ```
+  </Step>
+
+  <Step title="Import the module">
+    Whether freshly installed or already present, the module is imported into the current session so its commands are immediately available.
+
+    ```powershell
+    Import-Module $Name -ErrorAction SilentlyContinue
+    Write-Host "✅ Module '$Name' loaded successfully." -ForegroundColor Green
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Parameters
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `-Name` | `string` | Yes | — | The exact module name as it appears in PSGallery. |
+| `-Repository` | `string` | No | `PSGallery` | The PowerShell repository to install from. |
+| `-ForceInstall` | `switch` | No | `$false` | Passes `-Force` to `Install-Module` and `Update-Module`, bypassing confirmation prompts and overwriting conflicts. |
+
+---
+
+## Standalone usage
+
+`Ensure-Module` can be called directly at any time, not just during profile load:
+
+```powershell
+Ensure-Module -Name "Microsoft.Graph"
+Ensure-Module -Name "ExchangeOnlineManagement"
+Ensure-Module -Name "VCF.PowerCLI" -ForceInstall
+```
+
+To load it from a script that runs before the profile is available, dot-source the profile first:
+
+```powershell
+. $PROFILE
+Ensure-Module -Name "Az"
+```
+
+---
+
+## Automatic loading via `$RequiredModules`
+
+The profile calls `Ensure-Module` for every entry in `$RequiredModules` at startup:
+
+```powershell
+$RequiredModules = @("VCF.PowerCLI")  # Add any other modules you want, e.g. (, "Az", "posh-git")
+
+Show-WelcomeMessage -ModulesToLoad $RequiredModules
+
+foreach ($mod in $RequiredModules) {
+    Ensure-Module -Name $mod
+}
+```
+
+Add any module you need in every session to this array.
+
+---
+
+## Module reference
+
+The following modules are used across the PowerShell Toolkit. All are available on PSGallery unless otherwise noted.
+
+| Module | Purpose | Manual install command |
+|---|---|---|
+| `ActiveDirectory` | AD user, group, and OU management | Included with RSAT; enable via Windows Features |
+| `VCF.PowerCLI` | VMware Cloud Foundation / vSphere automation | `Install-Module -Name VCF.PowerCLI` |
+| `VMware.PowerCLI` | VMware vSphere automation (legacy name) | `Install-Module -Name VMware.PowerCLI` |
+| `Microsoft.Graph` | Microsoft 365 and Entra ID via Graph API | `Install-Module -Name Microsoft.Graph` |
+| `ExchangeOnlineManagement` | Exchange Online mailbox and transport management | `Install-Module -Name ExchangeOnlineManagement` |
+| `Microsoft.Online.SharePoint.PowerShell` | SharePoint Online site and tenant management | `Install-Module -Name Microsoft.Online.SharePoint.PowerShell` |
+| `MicrosoftTeams` | Teams policies, channels, and user management | `Install-Module -Name MicrosoftTeams` |
+| `AzureAD` | Azure AD / Entra ID (deprecated) | `Install-Module -Name AzureAD` |
+
+<Note>
+  `AzureAD` is deprecated by Microsoft. Use `Microsoft.Graph` for new scripts. The Graph module covers all identity and directory operations that `AzureAD` provided, plus a much broader set of Microsoft 365 APIs.
+</Note>
+
+<Note>
+  `Install-Module` defaults to `-Scope AllUsers` on Windows, which requires an elevated (administrator) session. Use `-Scope CurrentUser` to install without elevation — this is what `Ensure-Module` does by default. If a module must be available to all users on a shared machine, run the install command from an elevated session with `-Scope AllUsers`.
+</Note>

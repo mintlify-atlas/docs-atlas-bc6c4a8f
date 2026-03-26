@@ -1,0 +1,182 @@
+---
+title: "Entra ID Federation for vCenter"
+description: Use VMware PowerCLI with Microsoft Entra ID federated vCenter logins
+---
+
+The `powercli_entra_id_connect_vcenter.ps1` script authenticates to vCenter Server using Microsoft Entra ID as an external identity provider. It uses the OAuth 2.0 Authorization Code grant type, which is required when vCenter is configured to use an external identity provider through VMware Identity Service.
+
+<Warning>
+  Never store OAuth client secrets in plain text or committed to source control. Use `$newClient.secret` only in an interactive session and handle the value securely.
+</Warning>
+
+## Prerequisites
+
+- PowerShell 5.0 or later
+- VMware PowerCLI 13 (`VCF.PowerCLI` module)
+- vCenter Server configured with Microsoft Entra ID as an external identity provider
+
+## Full script
+
+```powershell
+#	
+# .NOTES
+# 	Name: powercli_entra_id_connect_vcenter.ps1
+# 	Author: Joel Cottrell
+# 	Copyright: GPLv3
+#
+# .SYNOPSIS
+# Use VMWare PowerCLI with Microsoft Entra ID Federated vCenter Logins
+#
+# .DESCRIPTION
+# This script allows you to use VMWare PowerCLI with Microsoft Entra ID Federated vCenter Logins.
+#
+# .EXAMPLE
+# Example output:
+#
+# Name                           Port  User
+# ----                           ----  ----
+# test.testing.org               443   TESTING.ORG\test01…
+#
+
+# Define the vCenter Server URL 				#e.g. $vCenterServer = "https://<Your_vCenter_Server_FQDN>"
+$vCenterServer = "<Your_vCenter_Server_FQDN"
+
+# Create a new OAuth2 client
+
+$newOAuthArguments = @{
+  ClientID     = 'powercli-native'
+  Name         = 'PowerCLI Client'
+  Scope        = @("admin", "user", "profile", "email", "openid", "group")
+  GrantTypes   = @("authorization_code", "refresh_token")
+  RedirectUris = @("http://localhost:8844/authcode")
+  PkceEnforced = $true
+  AccessTokenTimeToLiveMinutes      = 30
+  RefreshTokenTimeToLiveMinutes     = 43200
+  RefreshTokenIdleTimeToLiveMinutes = 28800
+}
+$newClient = New-VIOAuth2Client @newOAuthArguments
+
+# NOTE: Use $newClient.secret to view the new secret if needed.
+
+#$ClientSecret = $newClient.secret
+
+# Use the values above to login to vCenter Server using PowerCLI.
+
+$newOAuthArguments = @{
+  TokenEndpointUrl         = 'https://$vCenterServer/acs/t/CUSTOMER/token'
+  AuthorizationEndpointUrl = 'https://$vCenterServer/acs/t/CUSTOMER/authorize' 
+  RedirectUrl              = 'http://localhost:8844/authcode'
+  ClientId                 = '$newClient.ClientID'
+  ClientSecret             = '$newClient.secret'
+}
+
+$oauthSecContext = New-OAuthSecurityContext @newOAuthArguments
+
+# The default web browser should open to an Azure / Entra AD login page.
+# You should be redirected after entering your credentials.
+
+# Take the $oauthSecContext return from the previous codeblock and use it
+# to create a $samlSecContext and use that to connect to our vCenter.
+
+$samlSecContext = New-VISamlSecurityContext -VCenterServer '$vCenterServer' -OAuthSecurityContext $oauthSecContext
+
+# Connect to vCenter
+
+Connect-VIServer -Server '$vCenterServer' -SamlSecurityContext $samlSecContext
+```
+
+## Workflow walkthrough
+
+<Steps>
+  <Step title="Verify prerequisites">
+    Ensure you have the `VCF.PowerCLI` module installed and that your vCenter Server has already been configured with Microsoft Entra ID as its external identity provider through VMware Identity Service.
+
+    ```powershell
+    # Verify the module is available
+    Get-Module -ListAvailable VCF.PowerCLI
+    ```
+  </Step>
+
+  <Step title="Set your vCenter Server">
+    Update the `$vCenterServer` variable at the top of the script with your vCenter Server FQDN:
+
+    ```powershell
+    $vCenterServer = "<Your_vCenter_Server_FQDN"
+    ```
+  </Step>
+
+  <Step title="Create an OAuth2 client in vCenter">
+    The script calls `New-VIOAuth2Client` to register a new OAuth2 client in vCenter. Customize `ClientID`, `Scope`, `GrantTypes`, and `RedirectUris` to match your environment's requirements:
+
+    ```powershell
+    $newOAuthArguments = @{
+      ClientID     = 'powercli-native'
+      Name         = 'PowerCLI Client'
+      Scope        = @("admin", "user", "profile", "email", "openid", "group")
+      GrantTypes   = @("authorization_code", "refresh_token")
+      RedirectUris = @("http://localhost:8844/authcode")
+      PkceEnforced = $true
+      AccessTokenTimeToLiveMinutes      = 30
+      RefreshTokenTimeToLiveMinutes     = 43200
+      RefreshTokenIdleTimeToLiveMinutes = 28800
+    }
+    $newClient = New-VIOAuth2Client @newOAuthArguments
+    ```
+
+    <Tip>
+      After `New-VIOAuth2Client` runs, use `$newClient.secret` to retrieve the generated client secret. Copy it immediately — it will not be shown again.
+    </Tip>
+  </Step>
+
+  <Step title="Create an OAuth security context">
+    Use the registered client to create an OAuth security context. Replace `CUSTOMER` in the token and authorization URLs with your tenant or domain identifier:
+
+    ```powershell
+    $newOAuthArguments = @{
+      TokenEndpointUrl         = 'https://$vCenterServer/acs/t/CUSTOMER/token'
+      AuthorizationEndpointUrl = 'https://$vCenterServer/acs/t/CUSTOMER/authorize' 
+      RedirectUrl              = 'http://localhost:8844/authcode'
+      ClientId                 = '$newClient.ClientID'
+      ClientSecret             = '$newClient.secret'
+    }
+
+    $oauthSecContext = New-OAuthSecurityContext @newOAuthArguments
+    ```
+
+    Running this step opens your default web browser to the Entra ID login page. Enter your credentials and complete any MFA prompts. You will be redirected back after authentication.
+  </Step>
+
+  <Step title="Create a SAML security context">
+    Convert the OAuth security context into a SAML security context that vCenter understands:
+
+    ```powershell
+    $samlSecContext = New-VISamlSecurityContext -VCenterServer '$vCenterServer' -OAuthSecurityContext $oauthSecContext
+    ```
+  </Step>
+
+  <Step title="Connect to vCenter">
+    Pass the SAML security context to `Connect-VIServer` to establish the authenticated session:
+
+    ```powershell
+    Connect-VIServer -Server '$vCenterServer' -SamlSecurityContext $samlSecContext
+    ```
+
+    On success, you will see output like:
+
+    ```powershell
+    Name                           Port  User
+    ----                           ----  ----
+    test.testing.org               443   TESTING.ORG\test01…
+    ```
+  </Step>
+</Steps>
+
+## Parameters to customize
+
+| Parameter | Description |
+|---|---|
+| `$vCenterServer` | FQDN of your vCenter Server |
+| `ClientID` | Identifier for the OAuth2 client registration |
+| `Scope` | OAuth scopes granted to the client |
+| `GrantTypes` | OAuth grant types (use `authorization_code` and `refresh_token`) |
+| `RedirectUris` | Callback URL for the authorization code flow |

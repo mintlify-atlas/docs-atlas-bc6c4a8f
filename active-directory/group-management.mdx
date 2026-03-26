@@ -1,0 +1,231 @@
+---
+title: "Group Management"
+description: PowerShell scripts for Active Directory group and membership management, including queries, auditing, nested group analysis, and member additions and removals.
+---
+
+These scripts cover day-to-day group administration: querying membership, modifying members, analyzing nested groups, and generating audit reports. All examples use the standard `ActiveDirectory` module and are compatible with PowerShell 5.1 and later.
+
+## Group types reference
+
+Understanding group types helps you choose the right scope and category for each use case.
+
+| Type | Scope | Typical use |
+|------|-------|------------|
+| Security — Domain Local | Single domain | Assigning permissions to resources in the same domain |
+| Security — Global | Forest-wide | Organizing users from the same domain; assign to Domain Local groups |
+| Security — Universal | Forest-wide | Cross-domain membership; used in large or multi-domain forests |
+| Distribution | N/A | Email distribution lists; cannot be used for permissions |
+
+## Querying groups
+
+### Find groups by name or attribute
+
+```powershell
+# Find a group by name
+Get-ADGroup -Identity "Help Desk"
+
+# Search for groups matching a pattern
+Get-ADGroup -Filter "Name -like 'Nursing*'"
+
+# Get all security groups in an OU
+Get-ADGroup -Filter "GroupCategory -eq 'Security'" `
+    -SearchBase "OU=Groups,DC=domain,DC=com"
+
+# Get group details including description and managed-by
+Get-ADGroup -Identity "Help Desk" -Properties Description, ManagedBy, GroupScope, GroupCategory
+```
+
+## Querying group membership
+
+<Tip>
+  Use the `-Recursive` switch with `Get-ADGroupMember` to resolve nested group membership. Without it, you only see direct members — nested group members are not included.
+</Tip>
+
+```powershell
+# List all direct members of a group
+Get-ADGroupMember -Identity "Help Desk"
+
+# List all members, including nested group members
+Get-ADGroupMember -Identity "Help Desk" -Recursive
+
+# List only user members (exclude computers and groups)
+Get-ADGroupMember -Identity "Help Desk" | Where-Object { $_.objectClass -eq "user" }
+
+# Export group membership to CSV
+Get-ADGroupMember -Identity "Help Desk" -Recursive |
+    Get-ADUser -Properties Department, Title |
+    Select-Object Name, SamAccountName, Department, Title |
+    Export-Csv -Path "C:\Reports\HelpDesk_Members.csv" -NoTypeInformation
+
+# Find which groups a user belongs to
+Get-ADUser -Identity jdoe -Properties MemberOf | Select-Object -ExpandProperty MemberOf
+
+# Recursive: find all groups a user belongs to (including nested)
+(Get-ADUser -Identity jdoe -Properties MemberOf).MemberOf | ForEach-Object {
+    Get-ADGroup -Identity $_ -Properties MemberOf
+}
+```
+
+## Adding and removing members
+
+<Tabs>
+  <Tab title="Single member">
+    ```powershell
+    # Add a user to a group
+    Add-ADGroupMember -Identity "Help Desk" -Members jdoe
+
+    # Remove a user from a group
+    Remove-ADGroupMember -Identity "Help Desk" -Members jdoe -Confirm:$false
+
+    # Add a computer to a group
+    Add-ADGroupMember -Identity "Workstations" -Members (Get-ADComputer -Identity "PC01")
+    ```
+  </Tab>
+  <Tab title="Bulk operations">
+    <Warning>
+      Export current group membership before making bulk changes. This lets you restore the original state if needed.
+    </Warning>
+
+    ```powershell
+    # Export current membership before changes
+    Get-ADGroupMember -Identity "Help Desk" |
+        Select-Object Name, SamAccountName, objectClass |
+        Export-Csv -Path "C:\Reports\HelpDesk_Before.csv" -NoTypeInformation
+
+    # Add multiple users from a CSV
+    $members = Import-Csv -Path "C:\Imports\new_members.csv"  # Column: SamAccountName
+    foreach ($member in $members) {
+        Add-ADGroupMember -Identity "Help Desk" -Members $member.SamAccountName
+    }
+
+    # Add all users from one OU to a group
+    Get-ADUser -Filter * -SearchBase "OU=Nursing,DC=domain,DC=com" | ForEach-Object {
+        Add-ADGroupMember -Identity "Clinical Staff" -Members $_
+    }
+
+    # Remove all members from a group
+    Get-ADGroupMember -Identity "Temp Contractors" | ForEach-Object {
+        Remove-ADGroupMember -Identity "Temp Contractors" -Members $_ -Confirm:$false
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Nested group analysis
+
+Nested groups are common in large AD environments and can make permission troubleshooting difficult. Use these scripts to map nesting relationships.
+
+```powershell
+# Find all groups nested inside a parent group
+function Get-NestedGroups {
+    param([string]$GroupName)
+    Get-ADGroupMember -Identity $GroupName |
+        Where-Object { $_.objectClass -eq "group" } | ForEach-Object {
+            $_
+            Get-NestedGroups -GroupName $_.Name
+        }
+}
+
+Get-NestedGroups -GroupName "All Staff"
+
+# Find groups that contain a specific group as a member
+Get-ADGroup -Filter * | Where-Object {
+    (Get-ADGroupMember -Identity $_ | Where-Object { $_.Name -eq "Help Desk" })
+}
+```
+
+## Group reporting and auditing
+
+```powershell
+# Report all groups with their member count
+Get-ADGroup -Filter * -SearchBase "OU=Groups,DC=domain,DC=com" |
+    Select-Object Name, GroupScope, GroupCategory, @{
+        Name = "MemberCount"
+        Expression = { (Get-ADGroupMember -Identity $_ -Recursive).Count }
+    } |
+    Export-Csv -Path "C:\Reports\GroupReport.csv" -NoTypeInformation
+
+# Find empty groups (no members)
+Get-ADGroup -Filter * | Where-Object {
+    -not (Get-ADGroupMember -Identity $_ -ErrorAction SilentlyContinue)
+} | Select-Object Name, DistinguishedName
+
+# Find groups with no description
+Get-ADGroup -Filter * -Properties Description |
+    Where-Object { -not $_.Description } |
+    Select-Object Name, DistinguishedName
+```
+
+## Common scenarios
+
+<AccordionGroup>
+  <Accordion title="How do I find all groups a user belongs to, including nested groups?">
+    The `MemberOf` attribute on a user only shows direct group memberships. To get all groups recursively, combine `Get-ADUser` with repeated `Get-ADGroupMember -Recursive` lookups, or use the `Get-ADPrincipalGroupMembership` cmdlet:
+
+    ```powershell
+    # Direct memberships
+    Get-ADPrincipalGroupMembership -Identity jdoe | Select-Object Name, GroupScope
+
+    # All groups (direct and nested via token expansion)
+    Get-ADUser -Identity jdoe -Properties TokenGroups | Select-Object -ExpandProperty TokenGroups | ForEach-Object {
+        Get-ADGroup -Identity $_ -ErrorAction SilentlyContinue
+    } | Select-Object Name, GroupScope, GroupCategory
+    ```
+  </Accordion>
+  <Accordion title="How do I compare membership between two groups?">
+    Export both groups' membership and use `Compare-Object`:
+
+    ```powershell
+    $group1 = Get-ADGroupMember -Identity "Group A" | Select-Object -ExpandProperty SamAccountName
+    $group2 = Get-ADGroupMember -Identity "Group B" | Select-Object -ExpandProperty SamAccountName
+
+    Compare-Object -ReferenceObject $group1 -DifferenceObject $group2 |
+        Select-Object InputObject, @{
+            Name = "Status"
+            Expression = { if ($_.SideIndicator -eq "<=") { "Only in Group A" } else { "Only in Group B" } }
+        }
+    ```
+  </Accordion>
+  <Accordion title="How do I remove a user from all groups at once?">
+    Retrieve all of a user's group memberships and loop through them. Be careful not to remove the user from their primary group or domain-required groups.
+
+    ```powershell
+    $user = Get-ADUser -Identity jdoe -Properties MemberOf
+
+    foreach ($group in $user.MemberOf) {
+        Remove-ADGroupMember -Identity $group -Members $user -Confirm:$false
+        Write-Host "Removed from: $group"
+    }
+    ```
+  </Accordion>
+  <Accordion title="How do I find groups that haven't been used recently?">
+    AD groups do not have a built-in last-used timestamp, but you can audit based on when membership last changed or whether any members have logged in recently:
+
+    ```powershell
+    # Groups modified more than 1 year ago
+    $cutoff = (Get-Date).AddDays(-365)
+    Get-ADGroup -Filter * -Properties WhenChanged |
+        Where-Object { $_.WhenChanged -lt $cutoff } |
+        Select-Object Name, WhenChanged, DistinguishedName |
+        Sort-Object WhenChanged |
+        Export-Csv -Path "C:\Reports\StaleGroups.csv" -NoTypeInformation
+    ```
+  </Accordion>
+  <Accordion title="How do I sync group membership from a CSV file?">
+    To make a group's membership exactly match a list of users (adding missing members and removing unlisted ones):
+
+    ```powershell
+    $targetGroup  = "Help Desk"
+    $csvPath      = "C:\Imports\desired_members.csv"  # Column: SamAccountName
+
+    $desired = (Import-Csv $csvPath).SamAccountName
+    $current = (Get-ADGroupMember -Identity $targetGroup | Where-Object { $_.objectClass -eq "user" }).SamAccountName
+
+    $toAdd    = $desired | Where-Object { $_ -notin $current }
+    $toRemove = $current | Where-Object { $_ -notin $desired }
+
+    foreach ($user in $toAdd)    { Add-ADGroupMember    -Identity $targetGroup -Members $user }
+    foreach ($user in $toRemove) { Remove-ADGroupMember -Identity $targetGroup -Members $user -Confirm:$false }
+    ```
+  </Accordion>
+</AccordionGroup>

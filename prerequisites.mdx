@@ -1,0 +1,156 @@
+---
+title: "Prerequisites"
+description: "Required PowerShell version, modules, and permissions"
+---
+
+Before running scripts from the toolkit, ensure your environment meets the version and module requirements for your target platform.
+
+<Warning>
+  Many scripts require elevated privileges — local administrator rights, domain administrator rights, or specific Azure/Microsoft 365 roles. Running scripts without appropriate permissions will result in errors or partial execution. Confirm required roles before proceeding.
+</Warning>
+
+## PowerShell version
+
+<Tabs>
+  <Tab title="Windows PowerShell 5.1">
+    Windows PowerShell 5.1 is included with Windows 10 and Windows Server 2016+. It is the minimum supported version for most scripts in this toolkit.
+
+    Check your version:
+
+    ```powershell
+    $PSVersionTable.PSVersion
+    ```
+
+    **Limitations with 5.1:**
+    - Some Microsoft Graph and Azure modules require PowerShell 7+
+    - TLS 1.2 must be explicitly enabled for certain module installations:
+
+    ```powershell
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    ```
+  </Tab>
+  <Tab title="PowerShell 7+">
+    PowerShell 7 (PowerShell Core) is the recommended version. It provides improved performance, cross-platform support, and compatibility with the latest Microsoft modules.
+
+    Install PowerShell 7:
+
+    ```powershell
+    winget install --id Microsoft.PowerShell --source winget
+    ```
+
+    Or download directly from the [PowerShell GitHub releases](https://github.com/PowerShell/PowerShell/releases).
+
+    Check your version:
+
+    ```powershell
+    $PSVersionTable.PSVersion
+    ```
+
+    PowerShell 7 installs alongside Windows PowerShell 5.1 — both can coexist on the same machine.
+  </Tab>
+</Tabs>
+
+## Required modules
+
+Install only the modules you need for your target platform. Run `Install-Module` in an elevated PowerShell session.
+
+| Module | Used for | Install command |
+|---|---|---|
+| `ActiveDirectory` | Active Directory scripts | See note below — RSAT required |
+| `VMware.PowerCLI` | VMware vSphere scripts | `Install-Module -Name VMware.PowerCLI` |
+| `Microsoft.Graph` | Microsoft 365 and Azure scripts | `Install-Module -Name Microsoft.Graph` |
+| `ExchangeOnlineManagement` | Exchange Online scripts | `Install-Module -Name ExchangeOnlineManagement` |
+| `Microsoft.Online.SharePoint.PowerShell` | SharePoint Online scripts | `Install-Module -Name Microsoft.Online.SharePoint.PowerShell` |
+
+### Installation commands
+
+```powershell
+# VMware PowerCLI
+Install-Module -Name VMware.PowerCLI -Scope CurrentUser -Force
+
+# Microsoft Graph
+Install-Module -Name Microsoft.Graph -Scope CurrentUser -Force
+
+# Exchange Online Management
+Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser -Force
+
+# SharePoint Online
+Install-Module -Name Microsoft.Online.SharePoint.PowerShell -Scope CurrentUser -Force
+```
+
+<Note>
+  The `ActiveDirectory` module is not available via `Install-Module`. On Windows Server, enable it with:
+
+  ```powershell
+  Install-WindowsFeature -Name RSAT-AD-PowerShell
+  ```
+
+  On Windows 10/11 workstations, install RSAT via **Settings > Optional Features**, or:
+
+  ```powershell
+  Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0
+  ```
+</Note>
+
+## Required permissions
+
+Each platform requires specific roles or privileges. Confirm you have the appropriate access before running scripts.
+
+### Active Directory
+
+- Domain user account for read-only reporting scripts
+- **Domain Admins** or delegated OU permissions for scripts that create, modify, or delete objects
+- Read access to the target OU specified in `-SearchBase`
+
+### Azure & Entra ID
+
+- **Global Reader** for read-only scripts
+- **User Administrator** or **Groups Administrator** for user and group management
+- **Global Administrator** for tenant-wide configuration scripts
+- Appropriate Microsoft Graph API permissions if using app-based authentication
+
+### Microsoft Intune
+
+- **Intune Administrator** role for device management and policy deployment
+- **Global Administrator** for full tenant access
+- Scripts in `Intune/Windows/` and `Intune/macOS/` deploy configurations via Intune — changes affect enrolled devices
+
+### Exchange Online
+
+- **Exchange Administrator** role for mailbox and transport rule management
+- **Global Reader** for reporting scripts
+- Connect to Exchange Online before running scripts:
+
+  ```powershell
+  Connect-ExchangeOnline -UserPrincipalName admin@yourdomain.com
+  ```
+
+### SharePoint Online
+
+- **SharePoint Administrator** role
+- Connect to SharePoint Online Admin Center before running scripts:
+
+  ```powershell
+  Connect-SPOService -Url https://yourtenant-admin.sharepoint.com
+  ```
+
+### VMware vSphere
+
+- vCenter Server credentials with at minimum **Read-Only** role for reporting scripts
+- **VM Power User** or **Administrator** role for scripts that modify VM configuration
+- Connect to vCenter before running PowerCLI scripts:
+
+  ```powershell
+  Connect-VIServer -Server vcenter.domain.com -Credential (Get-Credential)
+  ```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Clone the repository and run your first script
+  </Card>
+  <Card title="Active Directory" icon="sitemap" href="/active-directory/overview">
+    User, group, and domain management automation
+  </Card>
+</CardGroup>

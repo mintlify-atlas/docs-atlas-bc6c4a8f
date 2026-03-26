@@ -1,0 +1,343 @@
+---
+title: "PowerShell Profile Setup"
+description: Dynamic PowerShell profile with custom prompt, module auto-management, and system information display
+---
+
+The `Microsoft.PowerShell_profile.ps1` script installs a fully-featured PowerShell environment that greets you by name, auto-loads modules, and shows a live prompt with date, time, and session uptime on every command.
+
+## Installation
+
+<Steps>
+  <Step title="Find your profile path">
+    PowerShell loads a profile script automatically on startup. Run the following to see where yours lives:
+
+    ```powershell
+    $PROFILE
+    ```
+
+    Typical locations:
+
+    | Scope | Path |
+    |---|---|
+    | Current user, Current host | `C:\Users\<you>\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` |
+    | All users, Current host | `C:\Program Files\PowerShell\7\profile.ps1` |
+
+    If the file does not exist yet, create it:
+
+    ```powershell
+    New-Item -Path $PROFILE -ItemType File -Force
+    ```
+  </Step>
+
+  <Step title="Copy the profile file">
+    Copy `Microsoft.PowerShell_profile.ps1` from the repository to your profile path:
+
+    ```powershell
+    Copy-Item -Path ".\PowerShell\PowerShell Profile\Microsoft.PowerShell_profile.ps1" `
+              -Destination $PROFILE -Force
+    ```
+
+    Or, to use the dynamic loader that fetches the latest version from GitHub on every session start:
+
+    ```powershell
+    Copy-Item -Path ".\PowerShell\PowerShell Profile\dynamic_powershell_profile_loader.ps1" `
+              -Destination $PROFILE -Force
+    ```
+  </Step>
+
+  <Step title="Customize your name">
+    Open the profile in your editor and update the `$name` variable inside `Show-WelcomeMessage`:
+
+    ```powershell
+    $name = "Joel" # Change this to your name
+    ```
+  </Step>
+
+  <Step title="Set your required modules">
+    Near the bottom of the file, update `$RequiredModules` with the modules you want auto-loaded on every session:
+
+    ```powershell
+    $RequiredModules = @("VCF.PowerCLI")  # Add any other modules you want, e.g. (, "Az", "posh-git")
+    ```
+  </Step>
+
+  <Step title="Reload your profile">
+    Apply the changes without restarting the terminal:
+
+    ```powershell
+    . $PROFILE
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  Set `$name` to your first name so the time-of-day greeting feels personal. Add every module your daily workflow needs to `$RequiredModules` so they are always available the moment your session starts.
+</Tip>
+
+---
+
+## Welcome message
+
+When the profile loads it prints a greeting block, then lists the modules it is about to load:
+
+```
+==========================================
+Good morning Joel ☀️
+Welcome to PowerShell!  Progress, not perfection.
+==========================================
+
+📦 Loading modules...
+→ VCF.PowerCLI
+```
+
+The greeting text and color change based on the current hour:
+
+| Time range | Greeting | Color |
+|---|---|---|
+| Before 12:00 | Good morning `$name` ☀️ | Yellow |
+| 12:00 – 17:59 | Good afternoon `$name` 🌤️ | Green |
+| 18:00 and later | Good evening `$name` 🌙 | Cyan |
+
+---
+
+## Custom prompt
+
+Every time you press Enter the `prompt` function redraws two lines:
+
+```
+☀️ 03/26/2026 📅 | [09:14:32 AM] ⏰ | PowerShell Console Uptime: 4m ⏳
+
+[09:14:32 AM] ❯ C:\Users\Joel\Documents\>Projects>
+```
+
+- **Time icon** — emoji matching the time of day (moon, sun, partly cloudy, cityscape)
+- **Date** — `MM/dd/yyyy` format
+- **Time** — `hh:mm:ss tt` (12-hour with AM/PM)
+- **Session uptime** — minutes since the profile was loaded
+- **Path** — parent directory in dark gray, current folder in cyan
+
+---
+
+## Function reference
+
+### `Ensure-Module`
+
+Checks whether a module is installed, installs or updates it as needed, applies any module-specific configuration, then imports it. See [Module Management](/powershell/module-management) for full details.
+
+### `Show-WelcomeMessage`
+
+Displays the greeting block when the profile loads. Accepts an optional list of module names to print before loading begins.
+
+```powershell
+function Show-WelcomeMessage {
+    param (
+        [string[]]$ModulesToLoad = @()
+    )
+
+    $hour = (Get-Date).Hour
+    $username = $env:USERNAME
+    $quote = Get-RandomQuote
+    $greeting = ""
+    $color = "White"
+	$name = "Joel" # Change this to your name
+    switch ($hour) {
+        { $_ -lt 12 } {
+            $greeting = "Good morning $name ☀️"
+            $color = "Yellow"
+            break
+        }
+        { $_ -lt 18 } {
+            $greeting = "Good afternoon $name 🌤️"
+            $color = "Green"
+            break
+        }
+        default {
+            $greeting = "Good evening $name 🌙"
+            $color = "Cyan"
+        }
+    }
+
+    Write-Host ""
+    Write-Host "==========================================" -ForegroundColor DarkGray
+    Write-Host $greeting -ForegroundColor $color
+    Write-Host "Welcome to PowerShell! " -ForegroundColor Magenta -NoNewline
+    Write-Host "$quote" -ForegroundColor Cyan
+	Write-Host "==========================================" -ForegroundColor DarkGray
+
+    if ($ModulesToLoad.Count -gt 0) {
+        Write-Host "`n📦 Loading modules..." -ForegroundColor DarkCyan
+        foreach ($module in $ModulesToLoad) {
+            Write-Host "→ $module" -ForegroundColor DarkGray
+        }
+    }
+}
+```
+
+### `Get-BatteryStatus`
+
+Returns the current battery charge percentage for laptops. Returns an empty string on desktops or VMs where no battery is present.
+
+```powershell
+function Get-BatteryStatus {
+    $battery = Get-CimInstance Win32_Battery
+    if ($battery) {
+        return "$($battery.EstimatedChargeRemaining)% 🔋"
+    }
+    return ""
+}
+```
+
+### `Get-CPULoad`
+
+Samples the total CPU usage via the Windows Performance Counter and returns the rounded percentage.
+
+```powershell
+function Get-CPULoad {
+    $cpu = Get-Counter '\Processor(_Total)\% Processor Time'
+    $usage = [math]::Round($cpu.CounterSamples[0].CookedValue, 1)
+    return "$usage% CPU 🔥"
+}
+```
+
+### `Get-TimeIcon`
+
+Returns an emoji that reflects the current hour, used in the prompt and welcome message.
+
+```powershell
+function Get-TimeIcon {
+    $hour = (Get-Date).Hour
+    switch ($hour) {
+        { $_ -lt 6 }  { return "🌙" }
+        { $_ -lt 12 } { return "☀️" }
+        { $_ -lt 18 } { return "🌤️" }
+        default        { return "🌆" }
+    }
+}
+```
+
+### `Get-RandomQuote`
+
+Picks and returns a random motivational phrase from a built-in list each time the profile loads.
+
+```powershell
+function Get-RandomQuote {
+    $quotes = @(
+		"Dream big. Start now."
+		"You've got this."
+		"Be relentless."
+		"Make it happen."
+		"Create your future."
+		"Progress, not perfection."
+		"Stay hungry."
+		"Rise and grind."
+		"Own your power."
+		"Push. Persist. Prevail."
+    )
+    return $quotes | Get-Random
+}
+```
+
+### `Get-SessionUptime`
+
+Calculates how many minutes have passed since the profile was loaded. The session start time is stored in `$global:SessionStartTime` the first time the profile runs.
+
+```powershell
+function Get-SessionUptime() {
+    $elapsed = (Get-Date) - $global:SessionStartTime
+    return "{0}m" -f [math]::Floor($elapsed.TotalMinutes)
+}
+```
+
+### `Get-TimezoneAbbr`
+
+Maps the full Windows timezone name to a short abbreviation (PST, EST, etc.) for display in the prompt. Falls back to the full name if the timezone is not in the map.
+
+```powershell
+function Get-TimezoneAbbr {
+    $tzMap = @{
+        "Pacific Standard Time"  = "PST"
+        "Pacific Daylight Time"  = "PDT"
+        "Mountain Standard Time" = "MST"
+        "Mountain Daylight Time" = "MDT"
+        "Central Standard Time"  = "CST"
+        "Central Daylight Time"  = "CDT"
+        "Eastern Standard Time"  = "EST"
+        "Eastern Daylight Time"  = "EDT"
+    }
+
+    $tz = [System.TimeZoneInfo]::Local
+    $isDST = $tz.IsDaylightSavingTime([DateTime]::Now)
+    $fullName = if ($isDST) { $tz.DaylightName } else { $tz.StandardName }
+
+    return $tzMap[$fullName] ?? $fullName
+}
+```
+
+To add a timezone not in the map, append an entry to `$tzMap`:
+
+```powershell
+"GMT Standard Time" = "GMT"
+```
+
+### `prompt`
+
+The built-in PowerShell prompt function is overridden to draw the two-line status bar on every command.
+
+```powershell
+function prompt {
+    $now     = Get-Date
+    $time    = $now.ToString("hh:mm:ss tt")
+    $date    = $now.ToString("MM/dd/yyyy")
+    $tz      = Get-TimezoneAbbr
+    $uptime  = Get-SessionUptime
+    $battery = Get-BatteryStatus
+    $cpu     = Get-CPULoad
+    $icon    = Get-TimeIcon
+    $user    = $env:USERNAME
+    $cwd     = (Get-Location).Path
+    $base    = Split-Path $cwd -Parent
+    $folder  = Split-Path $cwd -Leaf
+
+    # Greeting and system info
+    Write-Host "`n$icon $date 📅 | [$time] ⏰ | PowerShell Console Uptime: $uptime ⏳" -ForegroundColor Green
+
+    # Prompt line with highlighted current folder
+    $shortTime = $now.ToString("hh:mm:ss tt")
+	Write-Host "`n[$shortTime] " -NoNewline -ForegroundColor Red
+	Write-Host "❯ $base\" -NoNewline -ForegroundColor DarkGray
+    Write-Host "$folder>" -NoNewline -ForegroundColor Cyan
+
+    return " "
+}
+```
+
+---
+
+## Dynamic profile loader
+
+Instead of copying the profile to every machine manually, `dynamic_powershell_profile_loader.ps1` downloads the latest version from GitHub each time a session starts:
+
+```powershell
+if (-not $env:PS_FAST_MODE) {
+
+    $remoteProfile = 'https://raw.githubusercontent.com/bigjoestretch/public/main/PowerShell/PowerShell%20Profile/Microsoft.PowerShell_profile.ps1'
+    $tempProfile   = Join-Path $env:TEMP 'remote_profile.ps1'
+
+    try {
+        Invoke-RestMethod -Uri $remoteProfile -OutFile $tempProfile -ErrorAction Stop
+        . $tempProfile
+        Write-Host "✅ Remote PowerShell profile loaded from bigjoestretch's GitHub" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "⚠ Failed to load remote PowerShell profile: $_"
+    }
+}
+```
+
+If the download fails (no internet, GitHub unavailable), the session continues normally with a warning — it does not break the terminal.
+
+Set the `PS_FAST_MODE` environment variable to skip the remote fetch and use a local profile instead:
+
+```powershell
+$env:PS_FAST_MODE = "1"
+```

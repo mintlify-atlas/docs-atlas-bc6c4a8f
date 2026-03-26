@@ -1,0 +1,75 @@
+---
+title: "Intune Device Management"
+description: "Microsoft Intune PowerShell scripts for device management, compliance, and app deployment"
+---
+
+This section of the PowerShell Toolkit covers scripts for managing Windows and macOS devices through Microsoft Intune (Microsoft Endpoint Manager). Scripts are organized by function — from enforcing device configuration through Proactive Remediations to deploying Win32 applications.
+
+All scripts are provided for educational purposes. Review and test each script before deploying to production.
+
+<Warning>
+  Always test scripts against a non-production or pilot device group before broad deployment. Some scripts modify registry keys, uninstall software, or create local accounts — changes that may be difficult to reverse at scale.
+</Warning>
+
+## Accessing Microsoft Endpoint Manager
+
+All Intune policy and script management is performed through the Microsoft Intune admin center:
+
+**Portal:** [https://endpoint.microsoft.com/](https://endpoint.microsoft.com/)
+
+From the portal you can access:
+- **Devices** — device inventory, compliance status, and configuration profiles
+- **Apps** — Win32 app packaging and deployment
+- **Endpoint security** — compliance policies and custom compliance scripts
+- **Reports > Endpoint analytics > Proactive Remediations** — detection and remediation script pairs
+
+## What's in this toolkit
+
+### Windows
+
+The Windows section is organized into the following subsections:
+
+| Section | Description |
+|---------|-------------|
+| Proactive Remediations | Detection + remediation script pairs run by Endpoint Analytics |
+| Compliance Scripts | Custom compliance detection scripts for third-party security agents |
+| Device Scripts | One-time PowerShell scripts deployed to devices |
+| Win32 Apps | Install and uninstall scripts for Win32 app packaging |
+| Security Baselines | Baseline configuration references |
+
+### macOS
+
+The macOS section covers shell scripts deployed via Intune's Device Scripts feature. macOS scripts use bash/shell rather than PowerShell and are executed in a different context from Windows scripts.
+
+## Navigate the toolkit
+
+<CardGroup cols={2}>
+  <Card
+    title="Proactive Remediations"
+    icon="wrench"
+    href="/intune/proactive-remediations"
+  >
+    Detection and remediation script pairs for automated issue detection and self-healing on Windows devices.
+  </Card>
+  <Card
+    title="Compliance Scripts"
+    icon="shield-check"
+    href="/intune/compliance-scripts"
+  >
+    Custom compliance detection scripts for third-party security agents including Cisco Umbrella, Netskope, and Zscaler.
+  </Card>
+  <Card
+    title="Win32 App Deployment"
+    icon="box"
+    href="/intune/win32-apps"
+  >
+    PowerShell install and uninstall scripts for Win32 app deployment, including Azul Zulu JRE, SnagIT 2024, and Datto RMM.
+  </Card>
+  <Card
+    title="macOS Management"
+    icon="apple"
+    href="/intune/macos"
+  >
+    Shell scripts and guidance for managing macOS devices through Microsoft Intune.
+  </Card>
+</CardGroup>

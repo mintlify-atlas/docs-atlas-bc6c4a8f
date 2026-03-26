@@ -1,0 +1,139 @@
+---
+title: "Exchange & Exchange Online"
+description: PowerShell scripts for Exchange Server and Exchange Online administration including mailbox management, distribution groups, and mail flow rules.
+---
+
+These scripts cover day-to-day Exchange Online administration tasks: reporting on mailbox sizes, managing distribution groups, and configuring mail flow rules. All scripts target Exchange Online via the `ExchangeOnlineManagement` module, though many cmdlets are compatible with on-premises Exchange Server as well.
+
+## Prerequisites
+
+```powershell
+# Install the Exchange Online Management module
+Install-Module -Name ExchangeOnlineManagement -Force
+
+# Import the module
+Import-Module ExchangeOnlineManagement
+```
+
+## Connecting to Exchange Online
+
+<Steps>
+  <Step title="Install the module">
+    ```powershell
+    Install-Module -Name ExchangeOnlineManagement -Force
+    ```
+  </Step>
+  <Step title="Connect with your admin account">
+    ```powershell
+    Connect-ExchangeOnline -UserPrincipalName admin@yourdomain.com
+    ```
+    You will be prompted for MFA if your account requires it. After authenticating, your session is active for all subsequent Exchange cmdlets.
+  </Step>
+  <Step title="Verify the connection">
+    ```powershell
+    # Confirm you can retrieve mailbox data
+    Get-Mailbox -ResultSize 5 | Select-Object DisplayName, PrimarySmtpAddress
+    ```
+  </Step>
+  <Step title="Disconnect when finished">
+    ```powershell
+    Disconnect-ExchangeOnline -Confirm:$false
+    ```
+  </Step>
+</Steps>
+
+<Note>
+Use a dedicated service account or Global Admin with appropriate Exchange roles. The minimum role for most read operations is **View-Only Recipients**.
+</Note>
+
+## Mailbox management
+
+Common cmdlets for working with user and shared mailboxes.
+
+```powershell
+# List all mailboxes
+Get-Mailbox -ResultSize Unlimited
+
+# Get a specific mailbox
+Get-Mailbox -Identity user@yourdomain.com
+
+# Get mailbox statistics (size, item count)
+Get-MailboxStatistics -Identity user@yourdomain.com | 
+    Select-Object DisplayName, TotalItemSize, ItemCount
+
+# Get statistics for all mailboxes
+Get-Mailbox -ResultSize Unlimited | 
+    Get-MailboxStatistics | 
+    Select-Object DisplayName, TotalItemSize, ItemCount |
+    Sort-Object TotalItemSize -Descending
+```
+
+## Mailbox size report
+
+Generate a CSV report of all mailbox sizes across your tenant.
+
+```powershell
+# Run the mailbox size report script
+.\Exchange\Get-MailboxSizeReport.ps1 -ExportPath "C:\Reports"
+```
+
+The `-ExportPath` parameter specifies the directory where the CSV report is saved. The script enumerates all mailboxes, retrieves statistics for each, and exports the results.
+
+```powershell
+# Manual equivalent — build the report inline
+$report = Get-Mailbox -ResultSize Unlimited | ForEach-Object {
+    $stats = Get-MailboxStatistics -Identity $_.PrimarySmtpAddress
+    [PSCustomObject]@{
+        DisplayName       = $_.DisplayName
+        EmailAddress      = $_.PrimarySmtpAddress
+        MailboxType       = $_.RecipientTypeDetails
+        TotalItemSize     = $stats.TotalItemSize
+        ItemCount         = $stats.ItemCount
+        LastLogonTime     = $stats.LastLogonTime
+    }
+}
+
+$report | Export-Csv -Path "C:\Reports\MailboxSizes.csv" -NoTypeInformation
+Write-Host "Report saved to C:\Reports\MailboxSizes.csv"
+```
+
+## Distribution groups
+
+```powershell
+# List all distribution groups
+Get-DistributionGroup -ResultSize Unlimited | 
+    Select-Object DisplayName, PrimarySmtpAddress, GroupType
+
+# Get members of a specific group
+Get-DistributionGroupMember -Identity "it-team@yourdomain.com" | 
+    Select-Object DisplayName, PrimarySmtpAddress
+
+# Add a member to a distribution group
+Add-DistributionGroupMember -Identity "it-team@yourdomain.com" `
+    -Member "newuser@yourdomain.com"
+
+# Remove a member from a distribution group
+Remove-DistributionGroupMember -Identity "it-team@yourdomain.com" `
+    -Member "leavinguser@yourdomain.com"
+```
+
+## Mail flow rules
+
+```powershell
+# List all transport rules (mail flow rules)
+Get-TransportRule | Select-Object Name, State, Priority
+
+# Get details of a specific rule
+Get-TransportRule -Identity "Block External Forwarding" | 
+    Format-List
+
+# Disable a transport rule
+Disable-TransportRule -Identity "Rule Name"
+
+# Enable a transport rule
+Enable-TransportRule -Identity "Rule Name"
+```
+
+<Warning>
+Changes to mail flow rules take effect immediately in Exchange Online. Test new rules using the **audit mode** (`SetAuditSeverity` action) before enabling enforcement.
+</Warning>
